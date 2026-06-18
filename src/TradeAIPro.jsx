@@ -30,7 +30,7 @@ const RISK_CFG = {
 const TABS = [
   {id:"brain", sym:"⬡", label:"AI核心"},
   {id:"market",sym:"◎", label:"市場"},
-  {id:"auto",  sym:"▶", label:"自動"},
+  {id:"auto",  sym:"◑", label:"自動"},
   {id:"learn", sym:"◈", label:"學習"},
   {id:"chat",  sym:"◉", label:"問答"},
   {id:"set",   sym:"◐", label:"設定"},
