@@ -388,20 +388,62 @@ function Chip({children,c="border-cyan-500/30 text-cyan-400 bg-cyan-500/10"}) {
 }
 
 // ── ◎ 市場頁（含搜尋輸入框）— 提升至頂層保持元件身分穩定 ──────
-function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl,setWl,setModal,manQty,setManQty,placeTrade}) {
+function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl,setWl,setModal,manQty,setManQty,placeTrade,broker}) {
   const cd=charts[selSym]||[], lp=live[selSym]||{}, sig=sigs[selSym]||{action:"hold",conf:50,rsi:50};
+  const [realQuote,setRealQuote]=useState(null); // {sym, price, loading, error}
+  const lookupRealPrice=async(sym)=>{
+    if(!sym||broker?.status!=="connected") return;
+    setRealQuote({sym,price:null,loading:true,error:null});
+    try{
+      const r=await fetch(`/api/sinopac?path=price/${sym}`);
+      const d=await r.json();
+      if(r.ok) setRealQuote({sym,price:d.price||d.close||d.last||null,loading:false,error:null});
+      else setRealQuote({sym,price:null,loading:false,error:d.detail||"查無資料"});
+    }catch(e){setRealQuote({sym,price:null,loading:false,error:"查詢失敗"});}
+  };
   return(
     <div className="space-y-3">
       {/* Search add */}
       <div className="flex gap-2">
-        <input value={search} onChange={e=>setSearch(e.target.value.toUpperCase())} placeholder="搜尋新增（如 AMD）"
-          onKeyDown={e=>{if(e.key==="Enter"&&STOCKS[search]&&!wl.includes(search)){setWl(w=>[...w,search]);setSearch("");}}}
+        <input value={search} onChange={e=>{setSearch(e.target.value.toUpperCase());setRealQuote(null);}} placeholder="輸入股票代號（如 0050、AAPL）"
+          onKeyDown={e=>{
+            if(e.key!=="Enter"||!search.trim()) return;
+            if(!wl.includes(search)){setWl(w=>[...w,search]);setSelSym(search);}
+            setSearch("");setRealQuote(null);
+          }}
           className="flex-1 bg-[#070f1c] border border-[#0d2137] rounded-xl px-3 py-2 text-xs text-white placeholder-gray-700 focus:outline-none focus:border-cyan-500/40"/>
-        <button onClick={()=>{if(STOCKS[search]&&!wl.includes(search)){setWl(w=>[...w,search]);setSearch("");}}}
-          className="w-9 h-9 bg-cyan-500/10 border border-cyan-500/25 rounded-xl flex items-center justify-center">
+        <button onClick={()=>{
+          if(!search.trim()) return;
+          if(!wl.includes(search)){setWl(w=>[...w,search]);setSelSym(search);}
+          setSearch("");setRealQuote(null);
+        }} className="w-9 h-9 bg-cyan-500/10 border border-cyan-500/25 rounded-xl flex items-center justify-center">
           <Plus className="w-3.5 h-3.5 text-cyan-400"/>
         </button>
+        {broker?.status==="connected"&&search.trim()&&(
+          <button onClick={()=>lookupRealPrice(search.trim())}
+            className="w-9 h-9 bg-violet-500/10 border border-violet-500/25 rounded-xl flex items-center justify-center" title="查詢真實報價">
+            <Search className="w-3.5 h-3.5 text-violet-400"/>
+          </button>
+        )}
       </div>
+      {/* 真實報價查詢結果 */}
+      {realQuote&&(
+        <Card cls="p-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs font-mono font-bold text-white">{realQuote.sym}</span>
+              {realQuote.loading&&<span className="text-[9px] text-gray-500 ml-2">查詢中...</span>}
+              {realQuote.error&&<span className="text-[9px] text-red-400 ml-2">{realQuote.error}</span>}
+              {realQuote.price!=null&&<span className="text-sm font-mono font-bold text-cyan-400 ml-3">${realQuote.price}</span>}
+            </div>
+            {realQuote.price!=null&&!wl.includes(realQuote.sym)&&(
+              <button onClick={()=>{setWl(w=>[...w,realQuote.sym]);setSelSym(realQuote.sym);setRealQuote(null);}}
+                className="text-[9px] px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 rounded-lg font-bold">+ 新增</button>
+            )}
+            {wl.includes(realQuote.sym)&&<span className="text-[9px] text-gray-600">已在自選股</span>}
+          </div>
+        </Card>
+      )}
 
       {/* Watchlist */}
       <Card cls="overflow-hidden">
@@ -576,6 +618,7 @@ export default function TradeAIPro() {
   const [manQty,   setManQty]   = useState(10); // 快速下單數量（提升到頂層，避免每次報價更新被重置）
   const [broker,   setBroker]   = useState({status:"disconnected",apiKey:"",secretKey:"",account:null,balance:null,error:null}); // 永豐真實帳戶連接
   const [tradeMode, setTradeMode] = useState("virtual"); // "virtual" | "real"  虛擬盤/真實盤切換
+  const [realPos,   setRealPos]   = useState([]); // 永豐真實持倉（連線後從後端取得）
   // ── ML 機器學習狀態 ──────────────────────────────────────────
   const [mlModel,    setMlModel]    = useState(()=>new NeuralNet(9,16,0.015));
   const [mlState,    setMlState]    = useState({
@@ -597,6 +640,13 @@ export default function TradeAIPro() {
   useEffect(()=>{sigsR.current=sigs;},[sigs]);
   useEffect(()=>{autoOnR.current=autoOn;},[autoOn]);
   useEffect(()=>{riskR.current=risk;},[risk]);
+  // 載入記住的帳密（頁面首次載入時還原，但不自動連接）
+  useEffect(()=>{
+    try{
+      const s=JSON.parse(localStorage.getItem("sinopac_creds")||"{}");
+      if(s.apiKey||s.secretKey) setBroker(b=>({...b,apiKey:s.apiKey||"",secretKey:s.secretKey||""}));
+    }catch{}
+  },[]);
 
   // ── Init ─────────────────────────────────────────────────────
   useEffect(()=>{
@@ -862,10 +912,19 @@ export default function TradeAIPro() {
       const d=await r.json();
       if(!r.ok) throw new Error(d.detail||"連接失敗");
       setBroker(b=>({...b,status:"connected",account:d,error:null}));
+      // 記住帳密到 localStorage（不自動連接，只記住讓下次方便輸入）
+      try{ localStorage.setItem("sinopac_creds",JSON.stringify({apiKey:broker.apiKey,secretKey:broker.secretKey})); }catch{}
+      // 取得帳戶餘額
       try{
         const br=await fetch("/api/sinopac?path=account");
         const bd=await br.json();
         if(br.ok) setBroker(b=>({...b,balance:bd}));
+      }catch{}
+      // 取得真實持倉
+      try{
+        const pr=await fetch("/api/sinopac?path=positions");
+        const pd=await pr.json();
+        if(pr.ok&&Array.isArray(pd)) setRealPos(pd);
       }catch{}
     }catch(e){
       setBroker(b=>({...b,status:"disconnected",error:e.message||"連接失敗，請確認金鑰正確"}));
@@ -1451,7 +1510,17 @@ export default function TradeAIPro() {
         ) : (
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 mb-2"><ShieldCheck className="w-3.5 h-3.5"/>身分驗證成功</div>
-            {broker.account?.stock_account && <Row l="證券帳戶" v={broker.account.stock_account} c="text-emerald-400"/>}
+            {broker.account?.stock_account && (()=>{
+              const a=broker.account.stock_account;
+              const pid=(a.match(/person_id='([^']+)'/)||[])[1]||"";
+              const aid=(a.match(/account_id='([^']+)'/)||[])[1]||"";
+              const nm=(a.match(/username='([^']+)'/)||[])[1]||"";
+              return(<>
+                <Row l="姓名" v={nm.length<=1?nm:nm.slice(0,1)+"*".repeat(Math.max(nm.length-2,1))+nm.slice(-1)} c="text-emerald-400"/>
+                <Row l="身分證字號" v={pid.slice(0,2)+"****"+pid.slice(-3)}/>
+                <Row l="帳號" v={"****"+aid.slice(-4)} c="text-cyan-400"/>
+              </>);
+            })()}
             {broker.balance && <>
               <Row l="帳戶餘額" v={`$${Number(broker.balance.balance||0).toLocaleString()}`}/>
               <Row l="可用資金" v={`$${Number(broker.balance.available||0).toLocaleString()}`} c="text-cyan-400"/>
@@ -1460,6 +1529,44 @@ export default function TradeAIPro() {
           </div>
         )}
       </Card>
+      {/* 真實持倉卡片 */}
+      {broker.status==="connected"&&(
+        <Card cls="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[9px] text-gray-600 uppercase tracking-wider">真實持倉</div>
+            <button onClick={async()=>{
+              try{const r=await fetch("/api/sinopac?path=positions");const d=await r.json();if(r.ok&&Array.isArray(d))setRealPos(d);}catch{}
+            }} className="text-[9px] text-gray-600 hover:text-cyan-400 flex items-center gap-1"><RefreshCw className="w-3 h-3"/>重新整理</button>
+          </div>
+          {realPos.length===0?(
+            <div className="text-[10px] text-gray-600 text-center py-4">無持倉 / 點擊重新整理</div>
+          ):(
+            <div className="space-y-2">
+              {realPos.map(p=>(
+                <div key={p.symbol} className="bg-[#0a1622] rounded-xl p-3 border border-[#0d2137]">
+                  <div className="flex justify-between items-center mb-1">
+                    <div><span className="text-xs font-mono font-bold text-white">{p.symbol}</span><span className="text-[9px] text-gray-500 ml-2">{p.name}</span></div>
+                    <span className={`text-xs font-mono font-bold ${(p.pnl||0)>=0?"text-emerald-400":"text-red-400"}`}>{(p.pnl||0)>=0?"+":""}{Number(p.pnl||0).toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between text-[9px] text-gray-500">
+                    <span>{p.quantity}股 · 均價 ${Number(p.avg_price||0).toFixed(2)}</span>
+                    <span>市值 ${Number(p.value||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+                  </div>
+                  <div className="flex justify-between text-[9px] mt-0.5">
+                    <span className="text-gray-600">現價 ${Number(p.current_price||0).toFixed(2)}</span>
+                    <span className={`font-mono ${(p.pnl_percent||0)>=0?"text-emerald-400":"text-red-400"}`}>{(p.pnl_percent||0)>=0?"+":""}{Number(p.pnl_percent||0).toFixed(2)}%</span>
+                  </div>
+                </div>
+              ))}
+              <div className="pt-1 border-t border-[#0d2137] flex justify-between text-[10px]">
+                <span className="text-gray-600">持倉市值合計</span>
+                <span className="text-white font-mono">${realPos.reduce((s,p)=>s+Number(p.value||0),0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+      {/* 以下原始卡片繼續 — 補個假的 Card 開頭讓結構完整 */}
       <Card cls="p-4">
         <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-3">系統資訊</div>
         <Row l="模式" v="測試版（虛擬資金）" c="text-amber-400"/>
@@ -1982,7 +2089,7 @@ export default function TradeAIPro() {
       {/* ── Content ── */}
       <div className="px-4 py-4 pb-28">
         {tab==="brain"  && <BrainTab/>}
-        {tab==="market" && <MarketTab selSym={selSym} setSelSym={setSelSym} charts={charts} live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} manQty={manQty} setManQty={setManQty} placeTrade={placeTrade}/>}
+        {tab==="market" && <MarketTab selSym={selSym} setSelSym={setSelSym} charts={charts} live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} manQty={manQty} setManQty={setManQty} placeTrade={placeTrade} broker={broker}/>}
         {tab==="auto"   && <AutoTab/>}
         {tab==="learn"  && <LearnTab/>}
         {tab==="chat"   && <ChatTab chat={chat} chatBusy={chatBusy} chatEnd={chatEnd} chatIn={chatIn} setChatIn={setChatIn} sendChat={sendChat}/>}
