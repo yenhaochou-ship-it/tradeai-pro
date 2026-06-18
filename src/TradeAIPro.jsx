@@ -574,7 +574,8 @@ export default function TradeAIPro() {
   const [chatIn,   setChatIn]   = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [manQty,   setManQty]   = useState(10); // 快速下單數量（提升到頂層，避免每次報價更新被重置）
-  const [broker,   setBroker]   = useState({status:"disconnected",apiKey:"",secretKey:"",account:null,balance:null,error:null}); // 永豐真實帳戶連接（僅讀取，不影響AI模擬下單）
+  const [broker,   setBroker]   = useState({status:"disconnected",apiKey:"",secretKey:"",account:null,balance:null,error:null}); // 永豐真實帳戶連接
+  const [tradeMode, setTradeMode] = useState("virtual"); // "virtual" | "real"  虛擬盤/真實盤切換
   // ── ML 機器學習狀態 ──────────────────────────────────────────
   const [mlModel,    setMlModel]    = useState(()=>new NeuralNet(9,16,0.015));
   const [mlState,    setMlState]    = useState({
@@ -585,7 +586,11 @@ export default function TradeAIPro() {
   const chatEnd = useRef(null);
   const liveR = useRef({}), posR = useRef([]), learnR = useRef(learn), chartR = useRef({});
   const sigsR  = useRef({}), autoOnR = useRef(false), riskR = useRef("low");
+  const tradeModeR = useRef("virtual"); // ref 讓 autoTrade 能即時讀到最新的 tradeMode
+  const brokerR    = useRef({status:"disconnected"}); // ref 讓 autoTrade 能即時讀到 broker 連線狀態
   useEffect(()=>{liveR.current=live;},[live]);
+  useEffect(()=>{tradeModeR.current=tradeMode;},[tradeMode]);
+  useEffect(()=>{brokerR.current=broker;},[broker]);
   useEffect(()=>{posR.current=pos;},[pos]);
   useEffect(()=>{learnR.current=learn;},[learn]);
   useEffect(()=>{chartR.current=charts;},[charts]);
@@ -765,9 +770,22 @@ export default function TradeAIPro() {
       const tp=+(price*(dir==="L"?1+cfg.tp/100:1-cfg.tp/100)).toFixed(2);
       const id=Date.now()+Math.random();
       const newPos={id,sym,name:STOCKS[sym]?.name||sym,dir,qty,entry:price,cur:price,pnl:0,pct:0,sl,tp,openTime:new Date().toLocaleTimeString("zh-TW"),auto:true,rl:risk,sigDetails:sig.details};
+      if(tradeModeR.current==="real"){
+        // 真實盤：送出真實委託，同時更新模擬持倉讓畫面即時顯示
+        if(brokerR.current?.status!=="connected"){
+          setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:"⚠️未連接",price,conf:sig.conf,note:"真實下單需先連接永豐"},...l.slice(0,49)]);
+          return;
+        }
+        fetch("/api/sinopac?path=order",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({symbol:sym,direction:dir==="L"?"buy":"sell",quantity:qty,price:price,order_type:"市價"})
+        }).catch(e=>console.error("Real auto order failed:",e));
+        setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:dir==="L"?"🔴AI真實買▲":"🔴AI真實賣▼",price,conf:sig.conf,rsi:sig.rsi},...l.slice(0,49)]);
+      } else {
+        // 虛擬盤：僅更新畫面狀態
+        setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:dir==="L"?"做多▲":"做空▼",price,conf:sig.conf,rsi:sig.rsi},...l.slice(0,49)]);
+      }
       setPos(p=>[...p,newPos]);
       setPf(pv=>({...pv,cash:+(pv.cash-(dir==="L"?price*qty:0)).toFixed(2)}));
-      setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:dir==="L"?"做多▲":"做空▼",price,conf:sig.conf,rsi:sig.rsi},...l.slice(0,49)]);
     });
   },[risk,wl,pf.cash,closePosById]);
 
@@ -779,9 +797,27 @@ export default function TradeAIPro() {
   },[autoOn,autoTrade]);
 
   // ── Manual trade ─────────────────────────────────────────────
-  const placeTrade = useCallback((sym,dir,qty)=>{
+  const placeTrade = useCallback(async(sym,dir,qty)=>{
     const price=N(liveR.current[sym]?.price,STOCKS[sym]?.base??0);
     if(!price||!qty||qty<1) return;
+    if(tradeModeR.current==="real"){
+      // 真實盤：送出真實委託
+      if(brokerR.current?.status!=="connected"){
+        setModal({type:"realErr",data:{msg:"請先在設定頁連接永豐帳戶"}});
+        return;
+      }
+      try{
+        const r=await fetch("/api/sinopac?path=order",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({symbol:sym,direction:dir==="L"?"buy":"sell",quantity:qty,price:price,order_type:"市價"})});
+        const d=await r.json();
+        if(!r.ok) throw new Error(d.detail||"下單失敗");
+        setModal({type:"realOk",data:{sym,dir,qty,price}});
+      }catch(e){
+        setModal({type:"realErr",data:{msg:e.message||"下單失敗，請確認帳戶連接狀態"}});
+      }
+      return;
+    }
+    // 虛擬盤
     const sl=+(price*(dir==="L"?0.98:1.02)).toFixed(2);
     const tp=+(price*(dir==="L"?1.05:0.95)).toFixed(2);
     const id=Date.now();
@@ -1697,7 +1733,7 @@ export default function TradeAIPro() {
             <Row l="今日盈虧" v={`${N(pf.dayPnL)>=0?"+":""}$${F(pf.dayPnL)}`} c={CC(pf.dayPnL)}/>
             <Row l="累計盈虧" v={`${N(pf.cumPnL)>=0?"+":""}$${F(pf.cumPnL)}`} c={CC(pf.cumPnL)}/>
             <Row l="持倉數" v={`${pos.length}筆`}/>
-            <Row l="模式" v="測試版（虛擬資金）" c="text-amber-400"/>
+            <Row l="交易模式" v={tradeMode==="real"?"🔴 真實盤":"🟡 虛擬盤"} c={tradeMode==="real"?"text-red-400":"text-amber-400"}/>
           </MW>
         );
       case "riskModal": {
@@ -1811,6 +1847,50 @@ export default function TradeAIPro() {
             </div>
           </MW>
         );
+      case "realModeConfirm":
+        return(
+          <MW title="⚠️ 切換至真實盤">
+            <div className="text-center py-4 mb-2">
+              <div className="text-4xl mb-3">🔴</div>
+              <div className="text-sm font-bold text-red-400 mb-3">即將切換為真實資金模式</div>
+              <div className="text-[11px] text-gray-400 leading-relaxed text-left bg-red-500/10 border border-red-500/20 rounded-xl p-3 space-y-1.5">
+                <div>· 手動下單將直接送出真實委託至永豐</div>
+                <div>· AI 自動交易將每30秒自動用真實資金下單</div>
+                <div>· 中間不會再次確認，請自行控管風險</div>
+                <div>· 停損/止盈設定由你在自動分頁選擇的風險等級決定</div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <button onClick={()=>{setTradeMode("real");setModal(null);}} className="w-full py-3 bg-red-500/20 border border-red-500/40 text-red-400 rounded-xl text-sm font-bold">我已了解風險，切換真實盤</button>
+              <button onClick={()=>setModal(null)} className="w-full py-2.5 bg-[#070f1c] border border-[#0d2137] text-gray-400 rounded-xl text-sm font-bold">取消</button>
+            </div>
+          </MW>
+        );
+      case "realOk":{
+        const{sym,dir,qty,price}=data;
+        return(
+          <MW title="真實委託已送出">
+            <div className="text-center py-6">
+              <div className="text-5xl mb-3">{dir==="L"?"🟢":"🔴"}</div>
+              <div className="text-base font-bold text-white">{sym} · {dir==="L"?"買入▲":"賣出▼"}</div>
+              <div className="text-sm text-gray-500 mt-1">{qty}股 @ ${N(price).toFixed(2)}</div>
+              <div className="mt-3 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">委託已送出永豐，實際成交以永豐大戶投為準</div>
+            </div>
+            <button onClick={()=>setModal(null)} className="w-full mt-2 py-3 bg-[#070f1c] border border-[#0d2137] text-gray-400 rounded-xl text-sm font-bold">確認</button>
+          </MW>
+        );
+      }
+      case "realErr":
+        return(
+          <MW title="下單失敗">
+            <div className="text-center py-6">
+              <div className="text-4xl mb-3">⚠️</div>
+              <div className="text-sm text-red-400 font-bold mb-2">真實委託失敗</div>
+              <div className="text-xs text-gray-500">{data?.msg||"請確認帳戶連接狀態"}</div>
+            </div>
+            <button onClick={()=>setModal(null)} className="w-full mt-2 py-3 bg-[#070f1c] border border-[#0d2137] text-gray-400 rounded-xl text-sm font-bold">確認</button>
+          </MW>
+        );
       case "resetModal":
         return(
           <MW title="確認重置">
@@ -1850,6 +1930,17 @@ export default function TradeAIPro() {
               <div className={`w-1.5 h-1.5 rounded-full ${autoOn?"bg-emerald-400 animate-pulse":"bg-gray-700"}`}/>
               {autoOn?RISK_CFG[risk].label+"運行":"待機"}
             </div>
+            <button onClick={()=>{
+              if(tradeMode==="virtual"){
+                if(broker.status!=="connected"){alert("請先在設定頁連接永豐帳戶，才能切換真實盤");return;}
+                setModal({type:"realModeConfirm"});
+              }else{
+                setTradeMode("virtual");
+              }
+            }} className={`flex items-center gap-1 text-[9px] px-2.5 py-1 rounded-full border font-bold transition-all ${tradeMode==="real"?"bg-red-500/20 border-red-500/50 text-red-400":"bg-[#0d2137] border-[#1a3050] text-gray-500 hover:text-gray-400"}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${tradeMode==="real"?"bg-red-400 animate-pulse":"bg-gray-700"}`}/>
+              {tradeMode==="real"?"🔴真實盤":"虛擬盤"}
+            </button>
           </div>
         </div>
         {/* Ticker */}
@@ -1881,6 +1972,13 @@ export default function TradeAIPro() {
         </div>
       </div>
 
+      {/* ── Real mode warning banner ── */}
+      {tradeMode==="real"&&(
+        <div className="bg-red-500/15 border-b border-red-500/30 px-4 py-1.5 flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse flex-shrink-0"/>
+          <span className="text-[9px] text-red-400 font-bold">真實盤模式 — 所有下單將直接送出真實委託至永豐帳戶</span>
+        </div>
+      )}
       {/* ── Content ── */}
       <div className="px-4 py-4 pb-28">
         {tab==="brain"  && <BrainTab/>}
