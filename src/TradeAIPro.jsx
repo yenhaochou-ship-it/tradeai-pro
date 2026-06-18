@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ComposedChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { Brain, RefreshCw, X, ChevronRight, Activity, Send, Play, Pause, Zap, TrendingUp, Search, Plus, RotateCcw } from "lucide-react";
+import { Brain, RefreshCw, X, ChevronRight, Activity, Send, Play, Pause, Zap, TrendingUp, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════
 // DESIGN TOKENS — Obsidian / Cyber Terminal
@@ -574,6 +574,7 @@ export default function TradeAIPro() {
   const [chatIn,   setChatIn]   = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [manQty,   setManQty]   = useState(10); // 快速下單數量（提升到頂層，避免每次報價更新被重置）
+  const [broker,   setBroker]   = useState({status:"disconnected",apiKey:"",secretKey:"",account:null,balance:null,error:null}); // 永豐真實帳戶連接（僅讀取，不影響AI模擬下單）
   // ── ML 機器學習狀態 ──────────────────────────────────────────
   const [mlModel,    setMlModel]    = useState(()=>new NeuralNet(9,16,0.015));
   const [mlState,    setMlState]    = useState({
@@ -812,6 +813,33 @@ export default function TradeAIPro() {
   },[chatBusy,sigs,autoOn,risk]);
 
   useEffect(()=>{chatEnd.current?.scrollIntoView({behavior:"smooth"});},[chat]);
+
+  // ── 永豐真實帳戶連接（透過 /api/sinopac 代理呼叫 Railway 後端，僅讀取帳戶資訊，不影響AI模擬下單）────
+  const connectBroker = useCallback(async()=>{
+    if(!broker.apiKey.trim()||!broker.secretKey.trim()){
+      setBroker(b=>({...b,error:"請輸入 API Key 與 Secret Key"})); return;
+    }
+    setBroker(b=>({...b,status:"connecting",error:null}));
+    try{
+      const r=await fetch("/api/sinopac?path=connect",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({api_key:broker.apiKey,secret_key:broker.secretKey})});
+      const d=await r.json();
+      if(!r.ok) throw new Error(d.detail||"連接失敗");
+      setBroker(b=>({...b,status:"connected",account:d,error:null}));
+      try{
+        const br=await fetch("/api/sinopac?path=account");
+        const bd=await br.json();
+        if(br.ok) setBroker(b=>({...b,balance:bd}));
+      }catch{}
+    }catch(e){
+      setBroker(b=>({...b,status:"disconnected",error:e.message||"連接失敗，請確認金鑰正確"}));
+    }
+  },[broker.apiKey,broker.secretKey]);
+
+  const disconnectBroker = useCallback(async()=>{
+    try{ await fetch("/api/sinopac?path=disconnect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})}); }catch{}
+    setBroker(b=>({...b,status:"disconnected",account:null,balance:null,error:null}));
+  },[]);
 
   // ── ML 訓練（非同步，分批執行避免 UI 凍結）────────────────────
   const trainML = useCallback(async()=>{
@@ -1359,9 +1387,47 @@ export default function TradeAIPro() {
   const SettingsTab = () => (
     <div className="space-y-3">
       <Card cls="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[9px] text-gray-600 uppercase tracking-wider flex items-center gap-1.5"><Link2 className="w-3 h-3"/>永豐大戶投連接</div>
+          <Chip c={
+            broker.status==="connected" ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/10" :
+            broker.status==="connecting" ? "border-amber-500/30 text-amber-400 bg-amber-500/10" :
+            "border-gray-600/30 text-gray-500 bg-gray-500/10"
+          }>
+            {broker.status==="connected"?"● 已連接":broker.status==="connecting"?"連接中":"未連接"}
+          </Chip>
+        </div>
+        {broker.status!=="connected" ? (
+          <div className="space-y-2.5">
+            <input type="password" placeholder="API Key" value={broker.apiKey}
+              onChange={e=>setBroker(b=>({...b,apiKey:e.target.value,error:null}))}
+              className="w-full bg-[#0a1622] border border-[#0d2137] rounded-lg px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/40"/>
+            <input type="password" placeholder="Secret Key" value={broker.secretKey}
+              onChange={e=>setBroker(b=>({...b,secretKey:e.target.value,error:null}))}
+              className="w-full bg-[#0a1622] border border-[#0d2137] rounded-lg px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/40"/>
+            {broker.error && <div className="flex items-start gap-1.5 text-[10px] text-red-400"><AlertTriangle className="w-3 h-3 mt-0.5 shrink-0"/>{broker.error}</div>}
+            <button onClick={connectBroker} disabled={broker.status==="connecting"}
+              className="w-full py-2.5 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold disabled:opacity-50 flex items-center justify-center gap-1.5">
+              {broker.status==="connecting" ? <><RefreshCw className="w-3 h-3 animate-spin"/>連接中...</> : "連接真實帳戶"}
+            </button>
+            <div className="text-[9px] text-gray-600 leading-relaxed">僅用於讀取真實帳戶餘額與持倉，AI自動交易與手動下單目前仍為模擬，不會用此連接送出真實委託。</div>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 mb-2"><ShieldCheck className="w-3.5 h-3.5"/>身分驗證成功</div>
+            {broker.account?.stock_account && <Row l="證券帳戶" v={broker.account.stock_account} c="text-emerald-400"/>}
+            {broker.balance && <>
+              <Row l="帳戶餘額" v={`$${Number(broker.balance.balance||0).toLocaleString()}`}/>
+              <Row l="可用資金" v={`$${Number(broker.balance.available||0).toLocaleString()}`} c="text-cyan-400"/>
+            </>}
+            <button onClick={disconnectBroker} className="w-full py-2 bg-red-500/10 border border-red-500/25 text-red-400 rounded-lg text-xs font-bold mt-3">中斷連接</button>
+          </div>
+        )}
+      </Card>
+      <Card cls="p-4">
         <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-3">系統資訊</div>
         <Row l="模式" v="測試版（虛擬資金）" c="text-amber-400"/>
-        <Row l="數據來源" v="Yahoo Finance 真實數據"/>
+        <Row l="數據來源" v="模擬數據（測試用）" c="text-amber-400"/>
         <Row l="AI 引擎" v="Claude Sonnet 4.6" c="text-violet-400"/>
         <Row l="掃描頻率" v="每30秒" c="text-cyan-400"/>
         <Row l="信號門檻" v="67%（嚴格模式）" c="text-cyan-400"/>
