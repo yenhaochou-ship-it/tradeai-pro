@@ -388,7 +388,7 @@ function Chip({children,c="border-cyan-500/30 text-cyan-400 bg-cyan-500/10"}) {
 }
 
 // ── ◎ 市場頁（含搜尋輸入框）— 提升至頂層保持元件身分穩定 ──────
-function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl,setWl,setModal,manQty,setManQty,placeTrade,broker}) {
+function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl,setWl,setModal,manQty,setManQty,placeTrade,broker,onRealPrice}) {
   const cd=charts[selSym]||[], lp=live[selSym]||{}, sig=sigs[selSym]||{action:"hold",conf:50,rsi:50};
   const [realQuote,setRealQuote]=useState(null); // {sym, price, loading, error}
   const lookupRealPrice=async(sym)=>{
@@ -437,8 +437,12 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
               {realQuote.price!=null&&<span className="text-sm font-mono font-bold text-cyan-400 ml-3">${realQuote.price}</span>}
             </div>
             {realQuote.price!=null&&!wl.includes(realQuote.sym)&&(
-              <button onClick={()=>{setWl(w=>[...w,realQuote.sym]);setSelSym(realQuote.sym);setRealQuote(null);}}
-                className="text-[9px] px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 rounded-lg font-bold">+ 新增</button>
+              <button onClick={()=>{
+                onRealPrice?.(realQuote.sym,realQuote.price);
+                setWl(w=>[...w,realQuote.sym]);
+                setSelSym(realQuote.sym);
+                setRealQuote(null);
+              }} className="text-[9px] px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 rounded-lg font-bold">+ 新增</button>
             )}
             {wl.includes(realQuote.sym)&&<span className="text-[9px] text-gray-600">已在自選股</span>}
           </div>
@@ -619,6 +623,7 @@ export default function TradeAIPro() {
   const [broker,   setBroker]   = useState({status:"disconnected",apiKey:"",secretKey:"",account:null,balance:null,error:null}); // 永豐真實帳戶連接
   const [tradeMode, setTradeMode] = useState("virtual"); // "virtual" | "real"  虛擬盤/真實盤切換
   const [realPos,   setRealPos]   = useState([]); // 永豐真實持倉（連線後從後端取得）
+  const [realBases, setRealBases] = useState({}); // {sym: price} 使用者新增股票的真實起始報價
   // ── ML 機器學習狀態 ──────────────────────────────────────────
   const [mlModel,    setMlModel]    = useState(()=>new NeuralNet(9,16,0.015));
   const [mlState,    setMlState]    = useState({
@@ -710,6 +715,38 @@ export default function TradeAIPro() {
     const dayPnL=pos.reduce((s,p)=>s+N(p.pnl),0)+hist.reduce((s,t)=>s+N(t.pnl),0);
     setPf(pv=>({...pv,total:+(pv.cash+posVal).toFixed(2),dayPnL:+dayPnL.toFixed(2)}));
   },[pos,hist]);
+
+  // ── 自動補充新增自選股的圖表資料（含真實報價起始點）──────────────────
+  useEffect(()=>{
+    const missing=wl.filter(sym=>!charts[sym]);
+    if(missing.length===0) return;
+    setCharts(prev=>{
+      const next={...prev};
+      missing.forEach(sym=>{
+        const base=STOCKS[sym]?.base||realBases[sym]||100;
+        next[sym]=genHistory(base);
+      });
+      return next;
+    });
+    setSparks(prev=>{
+      const next={...prev};
+      missing.forEach(sym=>{
+        const base=STOCKS[sym]?.base||realBases[sym]||100;
+        next[sym]=genSpark(base);
+      });
+      return next;
+    });
+    setLive(prev=>{
+      const next={...prev};
+      missing.forEach(sym=>{
+        if(next[sym]) return;
+        const base=STOCKS[sym]?.base||realBases[sym]||100;
+        const c=(Math.random()-0.45)*base*0.022;
+        next[sym]={price:+base.toFixed(2),chg:+c.toFixed(2),pct:+(c/base*100).toFixed(2)};
+      });
+      return next;
+    });
+  },[wl,realBases]);
 
   // ── Auto confidence builder ──────────────────────────────────
   // 每 8 秒根據信號品質、勝率、連勝自動提升 AI 信心度
@@ -2089,7 +2126,7 @@ export default function TradeAIPro() {
       {/* ── Content ── */}
       <div className="px-4 py-4 pb-28">
         {tab==="brain"  && <BrainTab/>}
-        {tab==="market" && <MarketTab selSym={selSym} setSelSym={setSelSym} charts={charts} live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} manQty={manQty} setManQty={setManQty} placeTrade={placeTrade} broker={broker}/>}
+        {tab==="market" && <MarketTab selSym={selSym} setSelSym={setSelSym} charts={charts} live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} manQty={manQty} setManQty={setManQty} placeTrade={placeTrade} broker={broker} onRealPrice={(sym,price)=>setRealBases(b=>({...b,[sym]:price}))}/>}
         {tab==="auto"   && <AutoTab/>}
         {tab==="learn"  && <LearnTab/>}
         {tab==="chat"   && <ChatTab chat={chat} chatBusy={chatBusy} chatEnd={chatEnd} chatIn={chatIn} setChatIn={setChatIn} sendChat={sendChat}/>}
