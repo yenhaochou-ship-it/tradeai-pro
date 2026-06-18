@@ -716,6 +716,38 @@ export default function TradeAIPro() {
     setPf(pv=>({...pv,total:+(pv.cash+posVal).toFixed(2),dayPnL:+dayPnL.toFixed(2)}));
   },[pos,hist]);
 
+  // ── 真實報價輪詢（broker 連線後每30秒向後端抓即時股價）──────────────
+  useEffect(()=>{
+    if(broker.status!=="connected") return;
+    const fetchAll=async()=>{
+      const results=await Promise.allSettled(
+        wl.map(async sym=>{
+          const r=await fetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
+          const d=await r.json();
+          return{sym,...d};
+        })
+      );
+      const updates={};
+      results.forEach(r=>{
+        if(r.status==="fulfilled"&&r.value.price){
+          const{sym,price,change=0,change_percent=0}=r.value;
+          updates[sym]={price:Number(price),chg:Number(change),pct:Number(change_percent)};
+        }
+      });
+      if(Object.keys(updates).length>0){
+        setLive(prev=>({...prev,...updates}));
+        setRealBases(prev=>{
+          const next={...prev};
+          Object.entries(updates).forEach(([sym,d])=>{if(!next[sym])next[sym]=d.price;});
+          return next;
+        });
+      }
+    };
+    fetchAll();
+    const iv=setInterval(fetchAll,30000);
+    return()=>clearInterval(iv);
+  },[broker.status]);
+
   // ── 自動補充新增自選股的圖表資料（含真實報價起始點）──────────────────
   useEffect(()=>{
     const missing=wl.filter(sym=>!charts[sym]);
