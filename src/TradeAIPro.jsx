@@ -625,11 +625,32 @@ export default function TradeAIPro() {
   const [realPos,   setRealPos]   = useState([]); // 永豐真實持倉（連線後從後端取得）
   const [realBases, setRealBases] = useState({}); // {sym: price} 使用者新增股票的真實起始報價
   // ── ML 機器學習狀態 ──────────────────────────────────────────
-  const [mlModel,    setMlModel]    = useState(()=>new NeuralNet(9,16,0.015));
-  const [mlState,    setMlState]    = useState({
-    trained:false, training:false, epoch:0, totalEpochs:0,
-    loss:[], valAcc:[], bestAcc:0, dataSize:0,
-    featureImport:[], prediction:{}, lastTrained:null,
+  const [mlModel,    setMlModel]    = useState(()=>{
+    // 嘗試從 localStorage 還原已訓練的模型
+    try{
+      const saved=JSON.parse(localStorage.getItem("ml_model_weights")||"null");
+      if(saved&&saved.W1&&saved.W2){
+        const m=new NeuralNet(saved.inputSz||9,saved.hiddenSz||16,saved.lr||0.015);
+        m.W1=saved.W1; m.b1=saved.b1; m.W2=saved.W2; m.b2=saved.b2;
+        m.valAcc=saved.valAcc||0; m.trained=true;
+        return m;
+      }
+    }catch(e){}
+    return new NeuralNet(9,16,0.015);
+  });
+  const [mlState,    setMlState]    = useState(()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem("ml_model_weights")||"null");
+      if(saved&&saved.W1){
+        return {trained:true,training:false,epoch:0,totalEpochs:120,
+          loss:[],valAcc:[],bestAcc:saved.valAcc||0,dataSize:0,
+          featureImport:[],prediction:{},
+          lastTrained:`${saved.savedAt}（已還原）`};
+      }
+    }catch(e){}
+    return {trained:false,training:false,epoch:0,totalEpochs:0,
+      loss:[],valAcc:[],bestAcc:0,dataSize:0,
+      featureImport:[],prediction:{},lastTrained:null};
   });
   const chatEnd = useRef(null);
   const liveR = useRef({}), posR = useRef([]), learnR = useRef(learn), chartR = useRef({});
@@ -1052,6 +1073,14 @@ export default function TradeAIPro() {
       if(lp){const feat=extractFeatures(sig,lp.price);preds[sym]=+(model.predict(feat)*100).toFixed(1);}
     });
     setMlModel(model);
+    // 訓練完成後儲存模型到 localStorage
+    try{
+      localStorage.setItem("ml_model_weights",JSON.stringify({
+        W1:model.W1, b1:model.b1, W2:model.W2, b2:model.b2,
+        inputSz:model.inputSz, hiddenSz:model.hiddenSz, lr:model.lr,
+        valAcc:model.valAcc, savedAt:new Date().toLocaleString("zh-TW")
+      }));
+    }catch(e){}
     setMlState(s=>({...s,trained:true,training:false,featureImport:fi,prediction:preds,bestAcc:model.valAcc,lastTrained:new Date().toLocaleTimeString("zh-TW")}));
   },[sigs]);
 
