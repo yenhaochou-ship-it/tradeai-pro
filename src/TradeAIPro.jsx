@@ -1579,6 +1579,8 @@ export default function TradeAIPro() {
         ) : (
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 mb-2"><ShieldCheck className="w-3.5 h-3.5"/>身分驗證成功</div>
+            {broker.account?.ca_activated===true&&<div className="flex items-center gap-1 text-[9px] text-cyan-400 mb-2"><ShieldCheck className="w-3 h-3"/>CA 憑證已啟用（可查詢庫存）</div>}
+            {broker.account?.ca_activated===false&&<div className="text-[9px] text-amber-400 mb-2">⚠ CA 憑證未啟用 — 持倉查詢可能為空，請確認 Railway 環境變數</div>}
             {broker.account?.stock_account && (()=>{
               const a=broker.account.stock_account;
               const pid=(a.match(/person_id='([^']+)'/)||[])[1]||"";
