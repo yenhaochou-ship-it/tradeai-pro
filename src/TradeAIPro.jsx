@@ -485,6 +485,21 @@ function Chip({children,c="border-cyan-500/30 text-cyan-400 bg-cyan-500/10"}) {
 function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl,setWl,setModal,manQty,setManQty,placeTrade,broker,onRealPrice,realBases}) {
   const cd=charts[selSym]||[], lp=live[selSym]||{}, sig=sigs[selSym]||{action:"hold",conf:50,rsi:50};
   const [realQuote,setRealQuote]=useState(null); // {sym, price, loading, error}
+  // ── 手機向左滑刪除自選股 ──────────────────────────────────────
+  const [swipeX,setSwipeX]=useState({});      // {sym: 目前位移px}
+  const swipeStartRef=useRef({});             // {sym: 觸控起始X}
+  const onSwipeStart=(sym,e)=>{ swipeStartRef.current[sym]=e.touches[0].clientX; };
+  const onSwipeMove=(sym,e)=>{
+    const startX=swipeStartRef.current[sym]; if(startX==null) return;
+    const dx=e.touches[0].clientX-startX;
+    if(dx<0) setSwipeX(s=>({...s,[sym]:Math.max(dx,-88)})); // 只能往左滑，最多滑88px
+  };
+  const onSwipeEnd=(sym)=>{
+    const x=swipeX[sym]||0;
+    setSwipeX(s=>({...s,[sym]:x<-44?-88:0})); // 滑超過一半就吸附展開，否則彈回
+    swipeStartRef.current[sym]=null;
+  };
+  const deleteSym=(sym)=>{ setWl(w=>w.filter(s=>s!==sym)); setSwipeX(s=>{const n={...s};delete n[sym];return n;}); };
   const lookupRealPrice=async(sym)=>{
     if(!sym||broker?.status!=="connected") return;
     setRealQuote({sym,price:null,loading:true,error:null});
@@ -548,38 +563,52 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
         {wl.map((sym,i)=>{
           const info=STOCKS[sym]||{name:getStockName(sym),base:realBases[sym]||0};
           const l=live[sym]||{}, sp=sparks[sym]||[], s=sigs[sym]||{action:"hold",conf:50};
+          const offset=swipeX[sym]||0;
           return(
-            <div key={sym} className={`flex items-center px-3 py-2.5 cursor-pointer hover:bg-[#0a1422] transition-all ${i<wl.length-1?"border-b border-[#0d2137]":""}`}
-              onClick={()=>{setSelSym(sym);setModal({type:"stockModal",data:{sym,lp:l,sig:s}});}}
-              onContextMenu={e=>{e.preventDefault();setWl(w=>w.filter(s=>s!==sym));}}>
-              <div className="w-7 h-7 rounded-lg bg-[#0d2137] flex items-center justify-center text-[9px] font-bold text-cyan-400 mr-3 flex-shrink-0">
-                {sym.replace(".TW","").slice(0,2)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-mono font-bold text-white flex items-center gap-1.5">
-                  {sym}
-                  {broker?.status==="connected"&&!STOCKS[sym]&&<span className="text-[7px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">真實</span>}
+            <div key={sym} className={`relative overflow-hidden ${i<wl.length-1?"border-b border-[#0d2137]":""}`}>
+              {/* 滑開後顯示的刪除按鈕（在底層） */}
+              <button onClick={()=>deleteSym(sym)}
+                className="absolute right-0 top-0 h-full w-[88px] bg-red-500/90 text-white text-xs font-bold flex items-center justify-center">
+                刪除
+              </button>
+              {/* 可滑動的內容（在上層，用 transform 位移） */}
+              <div
+                className="flex items-center px-3 py-2.5 cursor-pointer hover:bg-[#0a1422] bg-[#070f1c] transition-transform"
+                style={{transform:`translateX(${offset}px)`,touchAction:"pan-y"}}
+                onTouchStart={e=>onSwipeStart(sym,e)}
+                onTouchMove={e=>onSwipeMove(sym,e)}
+                onTouchEnd={()=>onSwipeEnd(sym)}
+                onClick={()=>{ if(offset!==0){setSwipeX(s=>({...s,[sym]:0}));return;} setSelSym(sym);setModal({type:"stockModal",data:{sym,lp:l,sig:s}});}}
+                onContextMenu={e=>{e.preventDefault();setWl(w=>w.filter(s=>s!==sym));}}>
+                <div className="w-7 h-7 rounded-lg bg-[#0d2137] flex items-center justify-center text-[9px] font-bold text-cyan-400 mr-3 flex-shrink-0">
+                  {sym.replace(".TW","").slice(0,2)}
                 </div>
-                <div className="text-[9px] text-gray-600">{info.name}{info.sector?` · ${info.sector}`:""}</div>
-              </div>
-              <div className="w-12 h-6 mx-2 flex-shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={sp} margin={{top:1,right:0,bottom:1,left:0}}>
-                    <Line type="monotone" dataKey="v" stroke={N(l.pct)>=0?"#4ade80":"#f87171"} strokeWidth={1.5} dot={false}/>
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="text-right mr-2 flex-shrink-0">
-                <div className="text-xs font-mono font-bold text-white">{N(l.price,info.base).toFixed(2)}</div>
-                <div className={`text-[9px] ${CC(l.pct)}`}>{N(l.pct)>=0?"▲":"▼"}{Math.abs(N(l.pct)).toFixed(2)}%</div>
-              </div>
-              <div className={`text-[9px] w-7 text-center font-bold flex-shrink-0 ${s.action==="buy"?"text-emerald-400":s.action==="sell"?"text-red-400":"text-gray-700"}`}>
-                {s.action==="buy"?"▲":s.action==="sell"?"▼":"─"}
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-mono font-bold text-white flex items-center gap-1.5">
+                    {sym}
+                    {broker?.status==="connected"&&!STOCKS[sym]&&<span className="text-[7px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">真實</span>}
+                  </div>
+                  <div className="text-[9px] text-gray-600">{info.name}{info.sector?` · ${info.sector}`:""}</div>
+                </div>
+                <div className="w-12 h-6 mx-2 flex-shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={sp} margin={{top:1,right:0,bottom:1,left:0}}>
+                      <Line type="monotone" dataKey="v" stroke={N(l.pct)>=0?"#4ade80":"#f87171"} strokeWidth={1.5} dot={false}/>
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="text-right mr-2 flex-shrink-0">
+                  <div className="text-xs font-mono font-bold text-white">{N(l.price,info.base).toFixed(2)}</div>
+                  <div className={`text-[9px] ${CC(l.pct)}`}>{N(l.pct)>=0?"▲":"▼"}{Math.abs(N(l.pct)).toFixed(2)}%</div>
+                </div>
+                <div className={`text-[9px] w-7 text-center font-bold flex-shrink-0 ${s.action==="buy"?"text-emerald-400":s.action==="sell"?"text-red-400":"text-gray-700"}`}>
+                  {s.action==="buy"?"▲":s.action==="sell"?"▼":"─"}
+                </div>
               </div>
             </div>
           );
         })}
-        <div className="px-3 py-1.5 text-[9px] text-gray-700 text-center">右鍵移除 · 點擊查看詳情</div>
+        <div className="px-3 py-1.5 text-[9px] text-gray-700 text-center">左滑刪除（手機）· 右鍵移除（電腦）· 點擊查看詳情</div>
       </Card>
 
       {/* Selected chart */}
@@ -715,7 +744,10 @@ export default function TradeAIPro() {
   const [autoOn,   setAutoOn]   = useState(false);
   const [risk,     setRisk]     = useState("low");
   const [alog,     setAlog]     = useState([]);
-  const [learn,    setLearn]    = useState({phase:0,trades:0,wins:0,pnl:0,conf:30,streak:0,maxStreak:0,bonus:0,history:[],weights:{rsi:0.25,macd:0.35,ma:0.25,vol:0.15}});
+  const [learn,    setLearn]    = useState(()=>{
+    try{ const s=JSON.parse(localStorage.getItem("learn_state")||"null"); if(s&&typeof s==="object") return s; }catch{}
+    return {phase:0,trades:0,wins:0,pnl:0,conf:30,streak:0,maxStreak:0,bonus:0,history:[],weights:{rsi:0.25,macd:0.35,ma:0.25,vol:0.15}};
+  });
   const [chat,     setChat]     = useState([{role:"ai",t:"我是 TradeAI Pro 的 AI 分析師，已整合即時市場數據與學習系統。有什麼問題都可以問我，例如分析股票、策略建議、或解釋指標。"}]);
   const [chatIn,   setChatIn]   = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -775,6 +807,16 @@ export default function TradeAIPro() {
   useEffect(()=>{riskR.current=risk;},[risk]);
   useEffect(()=>{ try{ localStorage.setItem("wl",JSON.stringify(wl)); }catch{} },[wl]);
   useEffect(()=>{ try{ localStorage.setItem("autoCapPct",String(autoCapPct)); }catch{} },[autoCapPct]);
+  // 學習狀態（AI信心度/勝率/連勝/自適應權重）持久化：本機立即存，連線時同步到後端（換裝置也不會重置）
+  useEffect(()=>{
+    try{ localStorage.setItem("learn_state",JSON.stringify(learn)); }catch{}
+    if(brokerR.current?.status==="connected"){
+      const t=setTimeout(()=>{
+        fetch("/api/sinopac?path=learn/state",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(learn)}).catch(()=>{});
+      },1500); // 1.5秒防抖，避免每次小變動都打後端
+      return()=>clearTimeout(t);
+    }
+  },[learn]);
   useEffect(()=>{riskGuardR.current=riskGuard;},[riskGuard]);
   // 後端自動交易狀態輪詢（連線後每30秒同步）
   useEffect(()=>{
@@ -1222,10 +1264,30 @@ export default function TradeAIPro() {
             body:JSON.stringify({predictions:predictions01})}).catch(()=>{});
         }
       }catch{}
+      // 從後端還原學習狀態（AI信心度/勝率/連勝/權重）——換裝置、清過快取也能接回進度
+      try{
+        const lr=await fetch("/api/sinopac?path=learn/state");
+        const ld=await lr.json();
+        if(lr.ok&&ld&&typeof ld.trades==="number"&&ld.trades>=(learn.trades||0)){
+          // 只在後端紀錄比本機更新（trades較多）時才覆蓋，避免反向覆蓋掉本機剛累積的新進度
+          setLearn(ld);
+        }
+      }catch{}
+      // 從後端還原ML神經網路模型權重（換裝置也能接續使用已訓練的模型）
+      try{
+        const mr=await fetch("/api/sinopac?path=ml/model");
+        const md=await mr.json();
+        if(mr.ok&&md&&md.W1&&!mlState.trained){
+          const m=new NeuralNet(md.inputSz||9,md.hiddenSz||16,md.lr||0.015);
+          m.W1=md.W1; m.b1=md.b1; m.W2=md.W2; m.b2=md.b2; m.valAcc=md.valAcc||0; m.trained=true;
+          setMlModel(m);
+          setMlState(s=>({...s,trained:true,bestAcc:md.valAcc||0,lastTrained:`${md.savedAt||""}（自後端還原）`}));
+        }
+      }catch{}
     }catch(e){
       setBroker(b=>({...b,status:"disconnected",error:e.message||"連接失敗，請確認金鑰正確"}));
     }
-  },[broker.apiKey,broker.secretKey,mlState.prediction]);
+  },[broker.apiKey,broker.secretKey,mlState.prediction,mlState.trained,learn.trades]);
 
   const disconnectBroker = useCallback(async()=>{
     try{ await fetch("/api/sinopac?path=disconnect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})}); }catch{}
@@ -1302,17 +1364,18 @@ export default function TradeAIPro() {
       if(lp){const feat=extractFeatures(sig,lp.price);preds[sym]=+(model.predict(feat)*100).toFixed(1);}
     });
     setMlModel(model);
-    // 訓練完成後儲存模型到 localStorage
-    try{
-      localStorage.setItem("ml_model_weights",JSON.stringify({
-        W1:model.W1, b1:model.b1, W2:model.W2, b2:model.b2,
-        inputSz:model.inputSz, hiddenSz:model.hiddenSz, lr:model.lr,
-        valAcc:model.valAcc, savedAt:new Date().toLocaleString("zh-TW")
-      }));
-    }catch(e){}
+    const modelSnapshot={
+      W1:model.W1, b1:model.b1, W2:model.W2, b2:model.b2,
+      inputSz:model.inputSz, hiddenSz:model.hiddenSz, lr:model.lr,
+      valAcc:model.valAcc, savedAt:new Date().toLocaleString("zh-TW")
+    };
+    // 訓練完成後儲存模型到 localStorage（同裝置重整頁面立即可用）
+    try{ localStorage.setItem("ml_model_weights",JSON.stringify(modelSnapshot)); }catch(e){}
     setMlState(s=>({...s,trained:true,training:false,featureImport:fi,prediction:preds,bestAcc:model.valAcc,lastTrained:new Date().toLocaleTimeString("zh-TW")}));
-    // 將訓練結果同步到後端，讓後端24h自動交易的下單判斷實際參考此次訓練（訓練≠下單脫節的關鍵串接）
+    // 將訓練結果同步到後端：① 完整模型權重（換裝置可還原）② 預測結果（讓後端下單邏輯實際參考）
     if(brokerR.current?.status==="connected"){
+      fetch("/api/sinopac?path=ml/model",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(modelSnapshot)}).catch(()=>{});
       const predictions01={};
       Object.entries(preds).forEach(([sym,v])=>{predictions01[sym]=+(v/100).toFixed(3);});
       fetch("/api/sinopac?path=ml/predictions",{method:"POST",headers:{"Content-Type":"application/json"},
