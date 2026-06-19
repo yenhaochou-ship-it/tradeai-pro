@@ -2142,7 +2142,9 @@ export default function TradeAIPro() {
   // ═══════════════════════════════════════════════════════════════
   // MODALS
   // ═══════════════════════════════════════════════════════════════
-  const MW = ({title,children}) => (
+  // 用 useCallback 固定 MW 的函式參照，避免每次畫面更新（如15秒報價輪詢）都被React當成全新元件重新掛載，
+  // 導致彈窗內的捲動位置被重置（這正是「往下滑幾秒後跳回最上面」的根本原因）
+  const MW = useCallback(({title,children}) => (
     <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={()=>setModal(null)}>
       <div className="absolute inset-0 bg-black/85 backdrop-blur-md"/>
       <div className="relative w-full max-w-lg bg-[#050c18] border-t border-x border-[#0d2137] rounded-t-3xl max-h-[88vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
@@ -2155,7 +2157,7 @@ export default function TradeAIPro() {
         <div className="p-5 pb-10">{children}</div>
       </div>
     </div>
-  );
+  ),[]);
 
   const MC = () => {
     if(!modal) return null;
@@ -2190,15 +2192,16 @@ export default function TradeAIPro() {
             </div>
             <Row l="現價" v={`$${N(lp.price).toFixed(2)}`}/>
             <Row l="漲跌" v={`${N(lp.pct)>=0?"+":""}${N(lp.pct).toFixed(2)}%`} c={CC(lp.pct)}/>
-            <Row l="RSI(14)" v={sig.rsi?.toFixed(1)} c={sig.rsi<30?"text-emerald-400":sig.rsi>70?"text-red-400":"text-gray-300"}/>
-            <Row l="StochRSI" v={sig.stochRsi?.toFixed(1)} c={sig.stochRsi<20?"text-emerald-400":sig.stochRsi>80?"text-red-400":"text-gray-400"}/>
-            <Row l="VWAP" v={`$${sig.vwap?.toFixed(2)}`} c={lp.price>sig.vwap?"text-emerald-400":"text-red-400"}/>
-            <Row l="價格 vs VWAP" v={lp.price>sig.vwap?"在VWAP上方（偏多）":"在VWAP下方（偏空）"} c={lp.price>sig.vwap?"text-emerald-400":"text-red-400"}/>
-            <Row l="布林位置" v={`${(sig.bbPct*100).toFixed(0)}%（${sig.bbPct<0.2?"接近下軌":sig.bbPct>0.8?"接近上軌":"中間位置"}）`} c={sig.bbPct<0.2?"text-emerald-400":sig.bbPct>0.8?"text-red-400":"text-gray-400"}/>
-            <Row l="MA趨勢" v={sig.ma5>sig.ma20?"多頭排列▲":"空頭排列▼"} c={sig.ma5>sig.ma20?"text-emerald-400":"text-red-400"}/>
-            <Row l="趨勢強度" v={`${sig.trendStr?.toFixed(2)}（${sig.trendStr>0.65?"強趨勢":"弱趨勢/盤整"}）`} c={sig.trendStr>0.65?"text-amber-400":"text-gray-500"}/>
-            <Row l="量比" v={`${sig.volRatio?.toFixed(2)}x`} c={sig.volRatio>1.5?"text-amber-400":"text-gray-300"}/>
+            <Row l="RSI(14)" v={sig.rsi!=null?sig.rsi.toFixed(1):"計算中..."} c={sig.rsi<30?"text-emerald-400":sig.rsi>70?"text-red-400":"text-gray-300"}/>
+            <Row l="StochRSI" v={sig.stochRsi!=null?sig.stochRsi.toFixed(1):"計算中..."} c={sig.stochRsi<20?"text-emerald-400":sig.stochRsi>80?"text-red-400":"text-gray-400"}/>
+            <Row l="VWAP" v={sig.vwap!=null?`$${sig.vwap.toFixed(2)}`:"計算中..."} c={lp.price>sig.vwap?"text-emerald-400":"text-red-400"}/>
+            <Row l="價格 vs VWAP" v={sig.vwap==null?"—":lp.price>sig.vwap?"在VWAP上方（偏多）":"在VWAP下方（偏空）"} c={lp.price>sig.vwap?"text-emerald-400":"text-red-400"}/>
+            <Row l="布林位置" v={sig.bbPct!=null?`${(sig.bbPct*100).toFixed(0)}%（${sig.bbPct<0.2?"接近下軌":sig.bbPct>0.8?"接近上軌":"中間位置"}）`:"計算中..."} c={sig.bbPct<0.2?"text-emerald-400":sig.bbPct>0.8?"text-red-400":"text-gray-400"}/>
+            <Row l="MA趨勢" v={sig.ma5!=null&&sig.ma20!=null?(sig.ma5>sig.ma20?"多頭排列▲":"空頭排列▼"):"計算中..."} c={sig.ma5>sig.ma20?"text-emerald-400":"text-red-400"}/>
+            <Row l="趨勢強度" v={sig.trendStr!=null?`${sig.trendStr.toFixed(2)}（${sig.trendStr>0.65?"強趨勢":"弱趨勢/盤整"}）`:"計算中..."} c={sig.trendStr>0.65?"text-amber-400":"text-gray-500"}/>
+            <Row l="量比" v={sig.volRatio!=null?`${sig.volRatio.toFixed(2)}x`:"計算中..."} c={sig.volRatio>1.5?"text-amber-400":"text-gray-300"}/>
             <Row l="MACD" v={sig.freshGolden?"金叉（剛發生）":sig.freshDeath?"死叉（剛發生）":"延續"} c={sig.freshGolden?"text-emerald-400":sig.freshDeath?"text-red-400":"text-gray-500"}/>
+            {(sig.rsi==null||sig.vwap==null)&&<div className="text-[9px] text-amber-400/70 mt-2">此股票剛加入，資料仍在累積，部分指標需要約1分鐘才會顯示完整數值。</div>}
             <div className="flex gap-2 mt-4">
               <button onClick={()=>{placeTrade(sym,"L",10);setModal(null);}} className="flex-1 py-2.5 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 rounded-xl text-xs font-bold">▲ 做多 10股</button>
               <button onClick={()=>{placeTrade(sym,"S",10);setModal(null);}} className="flex-1 py-2.5 bg-red-500/10 border border-red-500/25 text-red-400 rounded-xl text-xs font-bold">▼ 做空 10股</button>
@@ -2370,11 +2373,11 @@ export default function TradeAIPro() {
         const{sym,sig}=data;
         return(
           <MW title={`${sym} · 技術指標`}>
-            <Row l="RSI(14)" v={sig.rsi?.toFixed(1)} c={sig.rsi<30?"text-emerald-400":sig.rsi>70?"text-red-400":"text-gray-300"}/>
-            <Row l="RSI狀態" v={sig.rsi<30?"超賣 → 反彈機會":sig.rsi>70?"超買 → 回落風險":"正常區間"}/>
-            <Row l="MA方向" v={sig.ma5>sig.ma20?"多頭排列":"空頭排列"} c={sig.ma5>sig.ma20?"text-emerald-400":"text-red-400"}/>
+            <Row l="RSI(14)" v={sig.rsi!=null?sig.rsi.toFixed(1):"計算中..."} c={sig.rsi<30?"text-emerald-400":sig.rsi>70?"text-red-400":"text-gray-300"}/>
+            <Row l="RSI狀態" v={sig.rsi==null?"—":sig.rsi<30?"超賣 → 反彈機會":sig.rsi>70?"超買 → 回落風險":"正常區間"}/>
+            <Row l="MA方向" v={sig.ma5!=null&&sig.ma20!=null?(sig.ma5>sig.ma20?"多頭排列":"空頭排列"):"計算中..."} c={sig.ma5>sig.ma20?"text-emerald-400":"text-red-400"}/>
             <Row l="MACD" v={sig.action==="buy"?"金叉":sig.action==="sell"?"死叉":"中性"} c={sig.action==="buy"?"text-emerald-400":sig.action==="sell"?"text-red-400":"text-gray-400"}/>
-            <Row l="量比" v={`${sig.volRatio?.toFixed(2)}x`} c={sig.volRatio>1.5?"text-amber-400":"text-gray-300"}/>
+            <Row l="量比" v={sig.volRatio!=null?`${sig.volRatio.toFixed(2)}x`:"計算中..."} c={sig.volRatio>1.5?"text-amber-400":"text-gray-300"}/>
             <Row l="AI信心" v={`${sig.conf}%`} c="text-violet-400"/>
             <Row l="綜合信號" v={sig.action==="buy"?"買進▲":sig.action==="sell"?"賣出▼":"觀望"} c={sig.action==="buy"?"text-emerald-400":sig.action==="sell"?"text-red-400":"text-gray-400"}/>
           </MW>
@@ -2596,12 +2599,12 @@ export default function TradeAIPro() {
       )}
       {/* ── Content ── */}
       <div className="px-4 py-4 pb-28">
-        {tab==="brain"  && <BrainTab/>}
+        {tab==="brain"  && BrainTab()}
         {tab==="market" && <MarketTab selSym={selSym} setSelSym={setSelSym} charts={charts} live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} manQty={manQty} setManQty={setManQty} placeTrade={placeTrade} broker={broker} realBases={realBases} onRealPrice={(sym,price)=>setRealBases(b=>({...b,[sym]:price}))}/>}
-        {tab==="auto"   && <AutoTab/>}
-        {tab==="learn"  && <LearnTab/>}
+        {tab==="auto"   && AutoTab()}
+        {tab==="learn"  && LearnTab()}
         {tab==="chat"   && <ChatTab chat={chat} chatBusy={chatBusy} chatEnd={chatEnd} chatIn={chatIn} setChatIn={setChatIn} sendChat={sendChat}/>}
-        {tab==="set"    && <SettingsTab/>}
+        {tab==="set"    && SettingsTab()}
       </div>
 
       {/* ── Bottom Nav ── */}
@@ -2623,7 +2626,7 @@ export default function TradeAIPro() {
         </div>
       </div>
 
-      <MC/>
+      {MC()}
     </div>
   );
 }
