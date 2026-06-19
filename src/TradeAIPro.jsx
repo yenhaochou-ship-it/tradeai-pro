@@ -556,7 +556,10 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
                 {sym.replace(".TW","").slice(0,2)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-xs font-mono font-bold text-white">{sym}</div>
+                <div className="text-xs font-mono font-bold text-white flex items-center gap-1.5">
+                  {sym}
+                  {broker?.status==="connected"&&!STOCKS[sym]&&<span className="text-[7px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">真實</span>}
+                </div>
                 <div className="text-[9px] text-gray-600">{info.name}{info.sector?` · ${info.sector}`:""}</div>
               </div>
               <div className="w-12 h-6 mx-2 flex-shrink-0">
@@ -699,7 +702,7 @@ export default function TradeAIPro() {
   const [selSym,   setSelSym]   = useState("NVDA");
   const [wl, setWl] = useState(()=>{
     try{ const s=JSON.parse(localStorage.getItem("wl")||"null"); if(Array.isArray(s)&&s.length) return s; }catch{}
-    return ["NVDA","AAPL","TSLA","2330.TW","MSFT","AMD"];
+    return ["2330","0050","2317","2454","2882"]; // 預設改為台股（永豐可查真實報價、可實際當沖交易）
   });
   const [charts,   setCharts]   = useState({});
   const [sparks,   setSparks]   = useState({});
@@ -759,6 +762,7 @@ export default function TradeAIPro() {
   const tradeModeR = useRef("virtual");
   const autoCapPctR = useRef(100); // ref 讓 autoTrade 能即時讀到最新的 tradeMode
   const brokerR    = useRef({status:"disconnected"}); // ref 讓 autoTrade 能即時讀到 broker 連線狀態
+  const realSymR   = useRef(new Set()); // 已確認為「真實報價來源」的股票代號集合，這些不再用亂數模擬跳動
   useEffect(()=>{liveR.current=live;},[live]);
   useEffect(()=>{tradeModeR.current=tradeMode;},[tradeMode]);
   useEffect(()=>{autoCapPctR.current=autoCapPct;},[autoCapPct]);
@@ -817,6 +821,8 @@ export default function TradeAIPro() {
       setLive(prev=>{
         const next={};
         Object.entries(prev).forEach(([sym,d])=>{
+          // 已確認為真實報價來源的股票，不做亂數模擬跳動，價格只由真實輪詢更新
+          if(realSymR.current.has(sym)){ next[sym]=d; return; }
           const base=STOCKS[sym]?.base??d.price;
           const t=(Math.random()-0.499)*base*0.0015;
           const price=+(d.price+t).toFixed(2);
@@ -865,68 +871,96 @@ export default function TradeAIPro() {
     if(hr===0) setRiskGuard(rg=>rg.dailyLoss!==0||rg.dailyProfit!==0?{pauseUntil:0,consecLoss:0,dailyLoss:0,dailyProfit:0}:rg);
   },[pos,hist]);
 
-  // ── 真實報價輪詢（broker 連線後每30秒向後端抓即時股價）──────────────
+  // ── 真實報價輪詢（broker 連線後持續向後端抓真實即時股價，取代模擬數據）──
   useEffect(()=>{
     if(broker.status!=="connected") return;
+    let cancelled=false;
     const fetchAll=async()=>{
       const results=await Promise.allSettled(
         wl.map(async sym=>{
           const r=await fetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
           const d=await r.json();
+          if(!r.ok) throw new Error(d.detail||"查詢失敗");
           return{sym,...d};
         })
       );
+      if(cancelled) return;
       const updates={};
-      results.forEach(r=>{
+      results.forEach((r,i)=>{
+        const sym=wl[i];
         if(r.status==="fulfilled"&&r.value.price){
-          const{sym,price,change=0,change_percent=0}=r.value;
+          const{price,change=0,change_percent=0}=r.value;
           updates[sym]={price:Number(price),chg:Number(change),pct:Number(change_percent)};
+          realSymR.current.add(sym); // 標記為真實報價來源，停用該股的亂數模擬跳動
         }
       });
       if(Object.keys(updates).length>0){
         setLive(prev=>({...prev,...updates}));
         setRealBases(prev=>{
           const next={...prev};
-          Object.entries(updates).forEach(([sym,d])=>{if(!next[sym])next[sym]=d.price;});
+          Object.entries(updates).forEach(([sym,d])=>{next[sym]=d.price;});
           return next;
         });
       }
     };
     fetchAll();
-    const iv=setInterval(fetchAll,30000);
-    return()=>clearInterval(iv);
+    const iv=setInterval(fetchAll,15000); // 每15秒更新一次真實報價
+    return()=>{cancelled=true;clearInterval(iv);};
   },[broker.status]);
 
-  // ── 自動補充新增自選股的圖表資料（含真實報價起始點）──────────────────
+  // ── 自動補充新增自選股的圖表資料（已連線時優先抓真實報價當基準，避免顯示錯誤價格）──
   useEffect(()=>{
     const missing=wl.filter(sym=>!charts[sym]);
     if(missing.length===0) return;
-    setCharts(prev=>{
-      const next={...prev};
+    (async()=>{
+      const bases={};
+      // 已連線：先嘗試抓真實報價當作這支股票的基準價（不等15秒輪詢，立即查）
+      if(brokerR.current?.status==="connected"){
+        await Promise.all(missing.map(async sym=>{
+          if(STOCKS[sym]?.base){ bases[sym]=STOCKS[sym].base; return; } // 美股/內建股票本來就有模擬基準
+          try{
+            const r=await fetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
+            const d=await r.json();
+            if(r.ok&&d.price){ bases[sym]=Number(d.price); realSymR.current.add(sym); }
+          }catch{}
+        }));
+      }
+      // 補上還沒查到真實價格的（未連線 or 查詢失敗）：用既有 realBases 或預設 100，並標記非真實
       missing.forEach(sym=>{
-        const base=STOCKS[sym]?.base||realBases[sym]||100;
-        next[sym]=genHistory(base);
+        if(bases[sym]==null){
+          bases[sym]=STOCKS[sym]?.base||realBases[sym]||100;
+        }
       });
-      return next;
-    });
-    setSparks(prev=>{
-      const next={...prev};
-      missing.forEach(sym=>{
-        const base=STOCKS[sym]?.base||realBases[sym]||100;
-        next[sym]=genSpark(base);
+      setCharts(prev=>{
+        const next={...prev};
+        missing.forEach(sym=>{ next[sym]=genHistory(bases[sym]); });
+        return next;
       });
-      return next;
-    });
-    setLive(prev=>{
-      const next={...prev};
-      missing.forEach(sym=>{
-        if(next[sym]) return;
-        const base=STOCKS[sym]?.base||realBases[sym]||100;
-        const c=(Math.random()-0.45)*base*0.022;
-        next[sym]={price:+base.toFixed(2),chg:+c.toFixed(2),pct:+(c/base*100).toFixed(2)};
+      setSparks(prev=>{
+        const next={...prev};
+        missing.forEach(sym=>{ next[sym]=genSpark(bases[sym]); });
+        return next;
       });
-      return next;
-    });
+      setLive(prev=>{
+        const next={...prev};
+        missing.forEach(sym=>{
+          if(next[sym]) return;
+          const base=bases[sym];
+          if(realSymR.current.has(sym)){
+            next[sym]={price:base,chg:0,pct:0}; // 真實報價：起點即真實價，不疊加亂數
+          } else {
+            const c=(Math.random()-0.45)*base*0.022;
+            next[sym]={price:+base.toFixed(2),chg:+c.toFixed(2),pct:+(c/base*100).toFixed(2)};
+          }
+        });
+        return next;
+      });
+      setRealBases(prev=>{
+        const next={...prev};
+        missing.forEach(sym=>{ if(realSymR.current.has(sym)) next[sym]=bases[sym]; });
+        return next;
+      });
+    })();
   },[wl,realBases]);
 
   // ── Auto confidence builder ──────────────────────────────────
@@ -1935,7 +1969,7 @@ export default function TradeAIPro() {
       <Card cls="p-4">
         <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-3">系統資訊</div>
         <Row l="模式" v="測試版（虛擬資金）" c="text-amber-400"/>
-        <Row l="數據來源" v="模擬數據（測試用）" c="text-amber-400"/>
+        <Row l="數據來源" v={broker.status==="connected"?"永豐真實報價（台股）":"模擬數據（未連接永豐）"} c={broker.status==="connected"?"text-emerald-400":"text-amber-400"}/>
         <Row l="AI 引擎" v="Claude Sonnet 4.6" c="text-violet-400"/>
         <Row l="掃描頻率" v="每30秒" c="text-cyan-400"/>
         <Row l="信號門檻" v="67%（嚴格模式）" c="text-cyan-400"/>
