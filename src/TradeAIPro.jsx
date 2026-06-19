@@ -2112,7 +2112,7 @@ export default function TradeAIPro() {
       case "stockModal": {
         const{sym,lp,sig}=data; const cd=charts[sym]||[];
         return(
-          <MW title={`${sym} · ${STOCKS[sym]?.name}`}>
+          <MW title={`${sym} · ${getStockName(sym)}`}>
             <div className="grid grid-cols-3 gap-2 mb-4">
               {[{l:"現價",v:`$${N(lp.price).toFixed(2)}`,c:"text-white"},{l:"漲跌",v:`${N(lp.pct)>=0?"+":""}${N(lp.pct).toFixed(2)}%`,c:CC(lp.pct)},{l:"信號",v:sig.action==="buy"?"買▲":sig.action==="sell"?"賣▼":"觀",c:sig.action==="buy"?"text-emerald-400":sig.action==="sell"?"text-red-400":"text-gray-500"}].map(x=>(
                 <div key={x.l} className="bg-[#070f1c] border border-[#0d2137] rounded-xl p-2.5 text-center">
@@ -2131,7 +2131,7 @@ export default function TradeAIPro() {
               </ComposedChart>
             </ResponsiveContainer>
             <div className="mt-4 space-y-0">
-              <Row l="RSI" v={sig.rsi?.toFixed(1)} c={sig.rsi<30?"text-emerald-400":sig.rsi>70?"text-red-400":"text-gray-300"}/>
+              <Row l="RSI" v={cd.length<30?"資料累積中...":sig.rsi?.toFixed(1)??"—"} c={sig.rsi<30?"text-emerald-400":sig.rsi>70?"text-red-400":"text-gray-300"}/>
               <Row l="AI信心" v={`${sig.conf}%`} c="text-violet-400"/>
               <Row l="產業" v={STOCKS[sym]?.sector||TW_NAMES[sym.replace(".TW","")]?"台灣股票":"—"}/>
             </div>
