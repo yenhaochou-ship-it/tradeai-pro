@@ -482,7 +482,7 @@ function Chip({children,c="border-cyan-500/30 text-cyan-400 bg-cyan-500/10"}) {
 }
 
 // ── ◎ 市場頁（含搜尋輸入框）— 提升至頂層保持元件身分穩定 ──────
-function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl,setWl,setModal,manQty,setManQty,placeTrade,broker,onRealPrice}) {
+function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl,setWl,setModal,manQty,setManQty,placeTrade,broker,onRealPrice,realBases}) {
   const cd=charts[selSym]||[], lp=live[selSym]||{}, sig=sigs[selSym]||{action:"hold",conf:50,rsi:50};
   const [realQuote,setRealQuote]=useState(null); // {sym, price, loading, error}
   const lookupRealPrice=async(sym)=>{
