@@ -726,6 +726,7 @@ export default function TradeAIPro() {
   const [manQty,   setManQty]   = useState(10); // 快速下單數量（提升到頂層，避免每次報價更新被重置）
   const [capInput, setCapInput] = useState(()=>{ try{ return localStorage.getItem("starting_capital")||"1000000"; }catch{ return "1000000"; } });
   const [instFlows, setInstFlows] = useState({date:null,topBuy:[],topSell:[],loading:false}); // 三大法人真實買賣超（來源：台灣證交所公開資料）
+  const [scanResults, setScanResults] = useState({results:[],updated:null,scanning:false,loading:false}); // 全市場飆股雷達掃描結果（後端真實技術指標排序）
   const [broker,   setBroker]   = useState({status:"disconnected",apiKey:"",secretKey:"",account:null,balance:null,error:null}); // 永豐真實帳戶連接
   const [tradeMode, setTradeMode] = useState("virtual");
   const [autoCapPct, setAutoCapPct] = useState(()=>{ try{ return Number(localStorage.getItem("autoCapPct")||100); }catch{ return 100; } }); // AI自動交易可用資金%
@@ -907,6 +908,23 @@ export default function TradeAIPro() {
     }catch{ setInstFlows(s=>({...s,loading:false})); }
   },[]);
   useEffect(()=>{ if(broker.status==="connected") fetchInstFlows(); },[broker.status,fetchInstFlows]);
+
+  // ── AI飆股雷達：抓後端全市場掃描結果（真實技術指標排序，非自選股限定）──
+  const fetchScanResults = useCallback(async()=>{
+    setScanResults(s=>({...s,loading:true}));
+    try{
+      const r=await fetch("/api/sinopac?path=scan/topstocks?top=5");
+      const d=await r.json();
+      if(r.ok) setScanResults({results:d.results||[],updated:d.updated,scanning:d.scanning,loading:false});
+      else setScanResults(s=>({...s,loading:false}));
+    }catch{ setScanResults(s=>({...s,loading:false})); }
+  },[]);
+  useEffect(()=>{
+    if(broker.status!=="connected") return;
+    fetchScanResults();
+    const iv=setInterval(fetchScanResults,90000); // 每90秒抓一次最新掃描結果（後端排程每5分鐘才重新掃描一次，不用更頻繁）
+    return()=>clearInterval(iv);
+  },[broker.status,fetchScanResults]);
 
   // ── 真實歷史K棒定期刷新（避免抓一次後RSI/MACD用越來越舊的歷史資料）──
   useEffect(()=>{
@@ -1585,41 +1603,74 @@ export default function TradeAIPro() {
           </div>
         </Card>
 
-        {/* AI飆股雷達 TOP5：依技術面綜合動能排序自選股（非預測，僅反映目前技術面強度），取代原本跟市場頁重複的即時信號清單 */}
+        {/* AI飆股雷達 TOP5：連線時用後端真實掃描全市場主要50檔股票，技術面動能排序，含建議進出場點 */}
         <div className="space-y-2">
-          <div className="text-[9px] text-gray-600 uppercase tracking-wider px-1 flex items-center gap-1.5">
-            <Zap className="w-3 h-3 text-amber-400"/>AI飆股雷達 TOP5（技術面動能排行，非預測保證）
+          <div className="flex items-center justify-between px-1">
+            <div className="text-[9px] text-gray-600 uppercase tracking-wider flex items-center gap-1.5">
+              <Zap className="w-3 h-3 text-amber-400"/>AI飆股雷達 TOP5
+            </div>
+            {broker.status==="connected"&&scanResults.updated&&(
+              <span className="text-[8px] text-gray-700">更新於 {scanResults.updated}</span>
+            )}
           </div>
-          {(()=>{
-            const scored=wl.map(sym=>{
-              const sig=sigs[sym]||{action:"hold",conf:50,rsi:50};
-              const momentum=(N(sig.conf)-50)*1.0+(N(sig.volRatio,1)-1)*15+(N(sig.trendStr)*20);
-              return{sym,sig,momentum};
-            }).sort((a,b)=>Math.abs(b.momentum)-Math.abs(a.momentum)).slice(0,5);
-            if(scored.length===0) return <div className="text-[10px] text-gray-600 text-center py-4">尚無自選股，請先到市場頁新增</div>;
-            return scored.map(({sym,sig,momentum})=>{
-              const lp=live[sym]||{};
+          <div className="text-[9px] text-amber-400/70 px-1 leading-relaxed">
+            依RSI、量能、趨勢等技術指標排序，反映目前動能強度，<span className="font-bold">不是漲跌預測保證</span>，請自行判斷風險。
+          </div>
+          {broker.status!=="connected"?(
+            <div className="text-[10px] text-gray-600 text-center py-6 bg-[#070f1c] border border-[#0d2137] rounded-xl">
+              連接永豐帳戶後，可掃描全市場主要50檔股票<br/>找出技術面動能最強的標的
+            </div>
+          ):scanResults.loading&&scanResults.results.length===0?(
+            <div className="text-[10px] text-gray-600 text-center py-6 flex items-center justify-center gap-2">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin"/>掃描中（約需30秒~1分鐘）...
+            </div>
+          ):scanResults.results.length===0?(
+            <div className="text-[10px] text-gray-600 text-center py-6">目前沒有明確動能信號的股票，請稍後再試</div>
+          ):(
+            scanResults.results.map((r,idx)=>{
+              const isLong=r.action==="buy";
+              const inWl=wl.includes(r.symbol);
               return(
-                <Card key={sym} onClick={()=>setModal({type:"sigModal",data:{sym,sig,lp}})} cls="p-3 flex items-center gap-3">
-                  <div className={`w-1 h-8 rounded-full flex-shrink-0 ${sig.action==="buy"?"bg-emerald-400":sig.action==="sell"?"bg-red-400":"bg-gray-700"}`}/>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-bold text-white">{sym}</span>
-                      <span className="text-[9px] text-gray-600">{getStockName(sym)}</span>
+                <Card key={r.symbol} cls="p-3">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${isLong?"bg-emerald-500/15 text-emerald-400":"bg-red-500/15 text-red-400"}`}>
+                      {idx+1}
                     </div>
-                    <div className="text-[9px] text-gray-600">RSI {sig.rsi!=null?sig.rsi.toFixed(0):"—"} · 信心 {sig.conf}% · 動能強度 {Math.abs(momentum).toFixed(0)}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-white">{r.symbol}</span>
+                        <span className="text-[9px] text-gray-600">{getStockName(r.symbol)}</span>
+                      </div>
+                      <div className="text-[9px] text-gray-600">RSI {r.rsi} · 信心 {r.conf}%</div>
+                    </div>
+                    <Chip c={isLong?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":"bg-red-500/10 border-red-500/25 text-red-400"}>
+                      {isLong?"建議偏多▲":"建議偏空▼"}
+                    </Chip>
                   </div>
-                  <div className="text-right mr-2">
-                    <div className="text-sm font-mono font-bold text-white">{N(lp.price,STOCKS[sym]?.base??realBases[sym]??0).toFixed(2)}</div>
-                    <div className={`text-[9px] ${CC(lp.pct)}`}>{N(lp.pct)>=0?"▲":"▼"}{Math.abs(N(lp.pct)).toFixed(2)}%</div>
+                  <div className="grid grid-cols-3 gap-2 bg-[#0a1422] rounded-lg p-2 mb-2">
+                    <div className="text-center">
+                      <div className="text-[8px] text-gray-600">現價/建議進場</div>
+                      <div className="text-[11px] font-mono font-bold text-white">NT${r.price}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[8px] text-gray-600">停損價</div>
+                      <div className="text-[11px] font-mono font-bold text-red-400">NT${r.stop_loss}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[8px] text-gray-600">停利價</div>
+                      <div className="text-[11px] font-mono font-bold text-emerald-400">NT${r.take_profit}</div>
+                    </div>
                   </div>
-                  <Chip c={sig.action==="buy"?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":sig.action==="sell"?"bg-red-500/10 border-red-500/25 text-red-400":"border-gray-800 text-gray-700"}>
-                    {sig.action==="buy"?"買▲":sig.action==="sell"?"賣▼":"─"}
-                  </Chip>
+                  <button onClick={()=>{
+                    if(!inWl) setWl(w=>[...w,r.symbol]);
+                    setSelSym(r.symbol); setTab("market");
+                  }} className="w-full py-1.5 bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 rounded-lg text-[10px] font-bold">
+                    {inWl?"前往市場頁查看":"加入自選股並查看"}
+                  </button>
                 </Card>
               );
-            });
-          })()}
+            })
+          )}
         </div>
 
       </div>
