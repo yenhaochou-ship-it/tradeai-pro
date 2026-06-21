@@ -2279,11 +2279,15 @@ export default function TradeAIPro() {
           <button onClick={()=>{
             const v=Number(capInput);
             if(!v||v<10000){alert("請輸入至少 NT$10,000 的金額");return;}
-            if(pos.length>0&&!window.confirm("目前有持倉中，更改起始資金會清空虛擬盤的持倉與資產記錄（不影響真實永豐帳戶），確定要繼續嗎？")) return;
+            if(pos.length>0||hist.length>0){
+              setModal({type:"capitalResetConfirm",data:{newCapital:v}});
+              return;
+            }
             try{ localStorage.setItem("starting_capital",String(v)); }catch{}
             startingCapitalR.current=v;
             setPf({cash:v,total:v,dayPnL:0,cumPnL:0});
             setPos([]); setHist([]);
+            setModal({type:"capitalApplied",data:{newCapital:v}});
           }} className="px-4 py-2 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold">套用</button>
         </div>
         <div className="text-[9px] text-gray-700 mt-2">目前虛擬盤資產：NT${Number(pf.total||0).toLocaleString()}。僅影響虛擬盤模擬資金，不影響你的真實永豐帳戶。</div>
@@ -2769,6 +2773,46 @@ export default function TradeAIPro() {
             <button onClick={()=>setModal(null)} className="w-full mt-2 py-3 bg-[#070f1c] border border-[#0d2137] text-gray-400 rounded-xl text-sm font-bold">確認</button>
           </MW>
         );
+      case "capitalResetConfirm": {
+        const{newCapital}=data;
+        return(
+          <MW title="確認更改起始資金">
+            <div className="text-center py-3 mb-2">
+              <div className="text-4xl mb-3">💰</div>
+              <div className="text-sm font-bold text-amber-400 mb-2">目前虛擬盤有持倉或交易記錄</div>
+              <div className="text-[11px] text-gray-400 leading-relaxed text-left bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 space-y-1.5">
+                <div>· 目前持倉：{pos.length} 筆</div>
+                <div>· 歷史交易記錄：{hist.length} 筆</div>
+                <div>· 更改起始資金將清空以上資料，重新從 NT${newCapital.toLocaleString()} 開始</div>
+                <div>· 不會影響你的真實永豐帳戶</div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <button onClick={()=>{
+                try{ localStorage.setItem("starting_capital",String(newCapital)); }catch{}
+                startingCapitalR.current=newCapital;
+                setPf({cash:newCapital,total:newCapital,dayPnL:0,cumPnL:0});
+                setPos([]); setHist([]);
+                setModal({type:"capitalApplied",data:{newCapital}});
+              }} className="w-full py-3 bg-amber-500/20 border border-amber-500/40 text-amber-400 rounded-xl text-sm font-bold">確認清空並套用新資金</button>
+              <button onClick={()=>setModal(null)} className="w-full py-2.5 bg-[#070f1c] border border-[#0d2137] text-gray-400 rounded-xl text-sm font-bold">取消</button>
+            </div>
+          </MW>
+        );
+      }
+      case "capitalApplied": {
+        const{newCapital}=data;
+        return(
+          <MW title="已套用">
+            <div className="text-center py-6">
+              <div className="text-5xl mb-3">✅</div>
+              <div className="text-base font-bold text-white">虛擬盤起始資金已更新</div>
+              <div className="text-2xl font-mono font-bold text-cyan-400 mt-2">NT${newCapital.toLocaleString()}</div>
+            </div>
+            <button onClick={()=>setModal(null)} className="w-full py-3 bg-[#070f1c] border border-[#0d2137] text-gray-400 rounded-xl text-sm font-bold">確認</button>
+          </MW>
+        );
+      }
       case "resetModal":
         return(
           <MW title="確認重置">
