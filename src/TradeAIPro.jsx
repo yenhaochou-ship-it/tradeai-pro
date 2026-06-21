@@ -25,6 +25,9 @@ const STOCKS = {
 const TW_NAMES = {
   "0050":"元大台灣50","0056":"元大高股息","006208":"富邦台50","00878":"國泰永續高股息",
   "00881":"國泰台灣5G+","00891":"中信關鍵半導體","00919":"群益台灣精選高息","00929":"復華台灣科技優息",
+  "00631L":"元大台灣50正2","00632R":"元大台灣50反1","00633L":"富邦上証正2","00634R":"富邦上証反1",
+  "00637L":"國泰中國A50正2","00638R":"國泰中國A50反1","00650L":"福邦上証正2","00665L":"富邦印度正2",
+  "00670L":"富邦NASDAQ正2","00675L":"富邦臺灣加權正2","00685L":"群益臺灣加權正2",
   "2330":"台積電","2317":"鴻海","2454":"聯發科","2412":"中華電","2308":"台達電",
   "2881":"富邦金","2882":"國泰金","2886":"兆豐金","2891":"中信金","2884":"玉山金",
   "2303":"聯電","3711":"日月光","2382":"廣達","3008":"大立光","2357":"華碩",
@@ -32,7 +35,8 @@ const TW_NAMES = {
   "2330.TW":"台積電","0050.TW":"元大台灣50","0056.TW":"元大高股息",
 };
 // 取股票顯示名稱（優先 STOCKS 內建，其次 TW_NAMES，最後用代號本身）
-function getStockName(sym){ return STOCKS[sym]?.name || TW_NAMES[sym.replace(".TW","")] || TW_NAMES[sym] || sym; }
+let realNamesCache = {}; // 模組層級快取：避免每個呼叫getStockName的地方都要額外傳props，降低漏傳風險
+function getStockName(sym){ return realNamesCache[sym] || STOCKS[sym]?.name || TW_NAMES[sym.replace(".TW","")] || TW_NAMES[sym] || sym; }
 // 判斷是否為台灣整股可當沖的股票（代號為純數字）
 function isTWStock(sym){ return /^\d{4,6}(\.TW)?$/.test(sym); }
 // 台股當沖真實交易成本（手續費0.1425%x2 + 當沖證交稅0.15%，2026現行費率，估6折券商優惠）
@@ -514,7 +518,10 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
     try{
       const r=await fetch(`/api/sinopac?path=price/${sym}`);
       const d=await r.json();
-      if(r.ok) setRealQuote({sym,price:d.price||d.close||d.last||null,loading:false,error:null});
+      if(r.ok){
+        setRealQuote({sym,price:d.price||d.close||d.last||null,loading:false,error:null});
+        if(d.name) realNamesCache={...realNamesCache,[sym]:d.name}; // 立即可用，完整持久化交由15秒輪詢週期處理
+      }
       else setRealQuote({sym,price:null,loading:false,error:d.detail||"查無資料"});
     }catch(e){setRealQuote({sym,price:null,loading:false,error:"查詢失敗"});}
   };
@@ -775,9 +782,15 @@ export default function TradeAIPro() {
   const [autoCapPct, setAutoCapPct] = useState(()=>{ try{ return Number(localStorage.getItem("autoCapPct")||100); }catch{ return 100; } }); // AI自動交易可用資金%
   const [riskGuard, setRiskGuard] = useState({pauseUntil:0,consecLoss:0,dailyLoss:0,dailyProfit:0});
   const [backendAuto, setBackendAuto] = useState({enabled:false,status:null,log:[],loading:false}); // 後端24h自動交易 // 風控護盾
+  const [backendPaperMode, setBackendPaperMode] = useState(()=>{
+    try{ const s=localStorage.getItem("backend_paper_mode"); return s===null?true:s==="true"; }catch{ return true; }
+  }); // 後端24h自動交易模式：true=模擬下單(用真實股價算損益,不花真錢)，false=真實下單
+  useEffect(()=>{ try{ localStorage.setItem("backend_paper_mode",String(backendPaperMode)); }catch{} },[backendPaperMode]);
   const riskGuardR = useRef({pauseUntil:0,consecLoss:0,dailyLoss:0,dailyProfit:0}); // "virtual" | "real"  虛擬盤/真實盤切換
   const [realPos,   setRealPos]   = useState([]); // 永豐真實持倉（連線後從後端取得）
   const [realBases, setRealBases] = useState({}); // {sym: price} 使用者新增股票的真實起始報價
+  const [realNames, setRealNames] = useState(()=>{ try{ return JSON.parse(localStorage.getItem("real_names")||"{}"); }catch{ return {}; } }); // {sym: 真實中文名稱}，來自永豐合約資料，補足內建清單沒有的股票
+  useEffect(()=>{ try{ localStorage.setItem("real_names",JSON.stringify(realNames)); }catch{}; realNamesCache=realNames; },[realNames]);
   // ── ML 機器學習狀態 ──────────────────────────────────────────
   const [mlModel,    setMlModel]    = useState(()=>{
     // 嘗試從 localStorage 還原已訓練的模型
@@ -962,14 +975,19 @@ export default function TradeAIPro() {
       );
       if(cancelled) return;
       const updates={};
+      const nameUpdates={};
       results.forEach((r,i)=>{
         const sym=wl[i];
         if(r.status==="fulfilled"&&r.value.price){
-          const{price,change=0,change_percent=0}=r.value;
+          const{price,change=0,change_percent=0,name}=r.value;
           updates[sym]={price:Number(price),chg:Number(change),pct:Number(change_percent)};
+          if(name) nameUpdates[sym]=name; // 永豐回傳的真實中文名稱
           realSymR.current.add(sym); // 標記為真實報價來源，停用該股的亂數模擬跳動
         }
       });
+      if(Object.keys(nameUpdates).length>0){
+        setRealNames(prev=>({...prev,...nameUpdates}));
+      }
       if(Object.keys(updates).length>0){
         setLive(prev=>({...prev,...updates}));
         setRealBases(prev=>{
@@ -1004,6 +1022,7 @@ export default function TradeAIPro() {
     if(missing.length===0) return;
     (async()=>{
       const bases={};
+      const newNames={};
       // 已連線：先嘗試抓真實報價當作這支股票的基準價（不等15秒輪詢，立即查）
       if(brokerR.current?.status==="connected"){
         await Promise.all(missing.map(async sym=>{
@@ -1011,10 +1030,11 @@ export default function TradeAIPro() {
           try{
             const r=await fetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
             const d=await r.json();
-            if(r.ok&&d.price){ bases[sym]=Number(d.price); realSymR.current.add(sym); }
+            if(r.ok&&d.price){ bases[sym]=Number(d.price); realSymR.current.add(sym); if(d.name) newNames[sym]=d.name; }
           }catch{}
         }));
       }
+      if(Object.keys(newNames).length>0) setRealNames(prev=>({...prev,...newNames}));
       // 補上還沒查到真實價格的（未連線 or 查詢失敗）：用既有 realBases 或預設 100，並標記非真實
       missing.forEach(sym=>{
         if(bases[sym]==null){
@@ -1291,9 +1311,15 @@ export default function TradeAIPro() {
 用戶：${msg}`}
         ]})});
       const d=await r.json();
+      if(!r.ok){
+        const errMsg=d?.error?.message||d?.detail||`伺服器錯誤(${r.status})`;
+        setChat(c=>[...c,{role:"ai",t:`⚠️ 連線失敗：${errMsg}`}]);
+        setChatBusy(false);
+        return;
+      }
       const txt=(d.content?.[0]?.text||"暫時無法回應，請稍後再試。").replace(/```json|```/g,"").trim();
       setChat(c=>[...c,{role:"ai",t:txt}]);
-    }catch{setChat(c=>[...c,{role:"ai",t:"網路異常，請稍後重試。"}]);}
+    }catch(e){setChat(c=>[...c,{role:"ai",t:`⚠️ 網路異常：${e.message||"無法連接伺服器"}，請稍後重試。`}]);}
     setChatBusy(false);
   },[chatBusy,sigs,autoOn,risk]);
 
@@ -1370,6 +1396,27 @@ export default function TradeAIPro() {
     }
   },[broker.apiKey,broker.secretKey,broker.status,connectBroker]);
 
+  // ── 修正手機背景切換問題：手機切到背景一段時間後，後端可能已重啟/重新部署，
+  // 導致畫面顯示「已連接」但其實後端早已斷線（真實股價停止更新，要手動重連才會恢復）。
+  // 回到前景時主動驗證連接是否真的還有效，無效就自動重新連接。
+  useEffect(()=>{
+    const onVisible=async()=>{
+      if(document.visibilityState!=="visible") return;
+      if(brokerR.current?.status!=="connected") return;
+      try{
+        const r=await fetch("/api/sinopac?path=health");
+        const d=await r.json();
+        if(!r.ok||d.connected===false){
+          // 後端已斷線（重啟導致），自動重新連接
+          setBroker(b=>({...b,status:"disconnected"}));
+          autoConnectedR.current=false; // 允許再次自動連接
+        }
+      }catch{}
+    };
+    document.addEventListener("visibilitychange",onVisible);
+    return()=>document.removeEventListener("visibilitychange",onVisible);
+  },[]);
+
   const disconnectBroker = useCallback(async()=>{
     try{ await fetch("/api/sinopac?path=disconnect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})}); }catch{}
     setBroker(b=>({...b,status:"disconnected",account:null,balance:null,error:null}));
@@ -1386,22 +1433,40 @@ export default function TradeAIPro() {
     setBackendAuto(b=>({...b,loading:true}));
     try{
       const r=await fetch("/api/sinopac?path=auto/start",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({risk,cap_pct:autoCapPct,watchlist:wl})});
+        body:JSON.stringify({risk,cap_pct:autoCapPct,watchlist:wl,paper_mode:backendPaperMode})});
       const d=await r.json();
-      if(r.ok) setBackendAuto(b=>({...b,enabled:true,loading:false,status:d.state}));
+      if(r.ok){
+        setBackendAuto(b=>({...b,enabled:true,loading:false,status:d.state}));
+        try{ localStorage.setItem("backend_auto_should_run","true"); }catch{} // 記住意圖：後端重啟/重新部署後可自動恢復
+      }
       else throw new Error(d.detail||"啟動失敗");
     }catch(e){
       alert("後端自動交易啟動失敗："+e.message);
       setBackendAuto(b=>({...b,loading:false}));
     }
-  },[broker.status,risk,autoCapPct,wl]);
+  },[broker.status,risk,autoCapPct,wl,backendPaperMode]);
 
   const stopBackendAuto = useCallback(async()=>{
     try{
       await fetch("/api/sinopac?path=auto/stop",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});
       setBackendAuto(b=>({...b,enabled:false}));
+      try{ localStorage.setItem("backend_auto_should_run","false"); }catch{}
     }catch{}
   },[]);
+
+  // 自動恢復後端自動交易：若使用者之前啟動過、但輪詢發現後端目前是停止狀態（可能因Railway重啟/重新部署而遺失記憶體狀態），
+  // 自動重新呼叫一次啟動，避免每次都要手動重新按
+  const backendAutoResumedR = useRef(false);
+  useEffect(()=>{
+    if(backendAutoResumedR.current) return;
+    if(broker.status!=="connected") return;
+    let shouldRun=false;
+    try{ shouldRun=localStorage.getItem("backend_auto_should_run")==="true"; }catch{}
+    if(shouldRun&&!backendAuto.enabled&&!backendAuto.loading&&backendAuto.status!==null){
+      backendAutoResumedR.current=true;
+      startBackendAuto();
+    }
+  },[broker.status,backendAuto.enabled,backendAuto.loading,backendAuto.status,startBackendAuto]);
 
   // ── ML 訓練（非同步，分批執行避免 UI 凍結）────────────────────
   const trainML = useCallback(async()=>{
@@ -1682,10 +1747,27 @@ export default function TradeAIPro() {
             <div className="text-[9px] text-gray-600 mb-3 leading-relaxed">
               關閉瀏覽器後仍持續交易 · 台股時段 09:00-13:25 · 自動使用目前風險等級（{RISK_CFG[risk].label}）與自選股清單
             </div>
+            {backendAuto.status?.paper_mode!=null&&backendAuto.enabled&&(
+              <div className={`mb-3 text-[10px] px-3 py-2 rounded-lg border ${backendAuto.status.paper_mode?"bg-cyan-500/10 border-cyan-500/25 text-cyan-400":"bg-red-500/10 border-red-500/25 text-red-400"}`}>
+                {backendAuto.status.paper_mode?"📝 目前為模擬下單：用真實股價波動計算損益，不會花真錢":"🔴 目前為真實下單：會送出真實委託，花真實的錢"}
+              </div>
+            )}
+            {!backendAuto.enabled&&(
+              <div className="flex gap-2 mb-3">
+                <button onClick={()=>setBackendPaperMode(true)}
+                  className={`flex-1 py-2 rounded-lg text-[10px] font-bold border ${backendPaperMode?"bg-cyan-500/15 border-cyan-500/40 text-cyan-400":"border-[#0d2137] text-gray-600"}`}>
+                  📝 模擬下單（真實股價，不花真錢）
+                </button>
+                <button onClick={()=>setBackendPaperMode(false)}
+                  className={`flex-1 py-2 rounded-lg text-[10px] font-bold border ${!backendPaperMode?"bg-red-500/15 border-red-500/40 text-red-400":"border-[#0d2137] text-gray-600"}`}>
+                  🔴 真實下單
+                </button>
+              </div>
+            )}
             {!backendAuto.enabled?(
               <button onClick={startBackendAuto} disabled={backendAuto.loading}
                 className="w-full py-2.5 bg-violet-500/10 border border-violet-500/30 text-violet-400 rounded-xl text-xs font-bold disabled:opacity-50 flex items-center justify-center gap-1.5">
-                {backendAuto.loading?<><RefreshCw className="w-3 h-3 animate-spin"/>啟動中...</>:"啟動後端24h自動交易"}
+                {backendAuto.loading?<><RefreshCw className="w-3 h-3 animate-spin"/>啟動中...</>:`啟動後端24h自動交易（${backendPaperMode?"模擬":"真實"}）`}
               </button>
             ):(
               <button onClick={stopBackendAuto}
