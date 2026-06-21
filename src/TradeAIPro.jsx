@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ComposedChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { Brain, RefreshCw, X, ChevronRight, Activity, Send, Play, Pause, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, CheckCircle2, AlertCircle, XCircle, Target, DollarSign, Circle, Lightbulb, Info, Lock } from "lucide-react";
+import { Brain, RefreshCw, X, ChevronRight, Activity, Play, Pause, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, CheckCircle2, AlertCircle, XCircle, Target, DollarSign, Circle, Lightbulb, Info, Lock } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════
 // DESIGN TOKENS — Obsidian / Cyber Terminal
@@ -62,7 +62,6 @@ const TABS = [
   {id:"market",sym:"◎", label:"市場"},
   {id:"auto",  sym:"◑", label:"自動"},
   {id:"learn", sym:"◈", label:"學習"},
-  {id:"chat",  sym:"◉", label:"問答"},
   {id:"set",   sym:"◐", label:"設定"},
 ];
 
@@ -693,53 +692,6 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
 }
 
 // ── ◉ 問答頁（含聊天輸入框）— 提升至頂層保持元件身分穩定 ──────
-function ChatTab({chat,chatBusy,chatEnd,chatIn,setChatIn,sendChat}) {
-  return (
-    <div className="flex flex-col" style={{height:"calc(100vh - 230px)"}}>
-      <div className="flex-1 overflow-y-auto space-y-3 pb-3">
-        {chat.map((m,i)=>(
-          <div key={i} className={`flex ${m.role==="user"?"justify-end":"justify-start"}`}>
-            {m.role==="ai"&&(
-              <div className="w-6 h-6 rounded-full bg-violet-500/20 border border-violet-500/30 flex items-center justify-center mr-2 mt-0.5 flex-shrink-0">
-                <Brain className="w-3 h-3 text-violet-400"/>
-              </div>
-            )}
-            <div className={`max-w-[82%] px-3 py-2.5 rounded-2xl text-xs leading-relaxed ${m.role==="user"?"bg-cyan-500/10 border border-cyan-500/20 text-cyan-100 rounded-br-sm":"bg-[#070f1c] border border-[#0d2137] text-gray-300 rounded-bl-sm"}`}>
-              {m.t}
-            </div>
-          </div>
-        ))}
-        {chatBusy&&(
-          <div className="flex justify-start">
-            <div className="w-6 h-6 rounded-full bg-violet-500/20 border border-violet-500/30 flex items-center justify-center mr-2 flex-shrink-0">
-              <Brain className="w-3 h-3 text-violet-400"/>
-            </div>
-            <div className="bg-[#070f1c] border border-[#0d2137] rounded-2xl px-3 py-2.5 flex gap-1 items-center">
-              {[0,1,2].map(i=><div key={i} className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{animationDelay:`${i*0.15}s`}}/>)}
-            </div>
-          </div>
-        )}
-        <div ref={chatEnd}/>
-      </div>
-      {/* Quick prompts */}
-      <div className="flex gap-1.5 overflow-x-auto pb-2" style={{scrollbarWidth:"none"}}>
-        {["NVDA今日行情？","如何設定止損？","低風險策略說明","分析目前信號","勝率如何提升？"].map(q=>(
-          <button key={q} onClick={()=>sendChat(q)} className="flex-shrink-0 text-[9px] border border-[#0d2137] text-gray-500 px-2.5 py-1.5 rounded-full hover:border-cyan-500/40 hover:text-cyan-400 whitespace-nowrap">{q}</button>
-        ))}
-      </div>
-      <div className="flex gap-2">
-        <input value={chatIn} onChange={e=>setChatIn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendChat(chatIn)}
-          placeholder="詢問市場分析、交易策略、指標解讀..."
-          className="flex-1 bg-[#070f1c] border border-[#0d2137] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-700 focus:outline-none focus:border-cyan-500/40"/>
-        <button onClick={()=>sendChat(chatIn)} disabled={chatBusy||!chatIn.trim()}
-          className="w-10 h-10 bg-cyan-500/10 border border-cyan-500/25 rounded-xl flex items-center justify-center disabled:opacity-40">
-          {chatBusy?<RefreshCw className="w-4 h-4 text-cyan-400 animate-spin"/>:<Send className="w-4 h-4 text-cyan-400"/>}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════════════
@@ -771,9 +723,6 @@ export default function TradeAIPro() {
     try{ const s=JSON.parse(localStorage.getItem("learn_state")||"null"); if(s&&typeof s==="object") return s; }catch{}
     return {phase:0,trades:0,wins:0,pnl:0,conf:30,streak:0,maxStreak:0,bonus:0,history:[],weights:{rsi:0.25,macd:0.35,ma:0.25,vol:0.15}};
   });
-  const [chat,     setChat]     = useState([{role:"ai",t:"我是 TradeAI Pro 的 AI 分析師，已整合即時市場數據與學習系統。有什麼問題都可以問我，例如分析股票、策略建議、或解釋指標。"}]);
-  const [chatIn,   setChatIn]   = useState("");
-  const [chatBusy, setChatBusy] = useState(false);
   const [manQty,   setManQty]   = useState(10); // 快速下單數量（提升到頂層，避免每次報價更新被重置）
   const [capInput, setCapInput] = useState(()=>{ try{ return localStorage.getItem("starting_capital")||"1000000"; }catch{ return "1000000"; } });
   const [instFlows, setInstFlows] = useState({date:null,topBuy:[],topSell:[],loading:false}); // 三大法人真實買賣超（來源：台灣證交所公開資料）
@@ -819,7 +768,6 @@ export default function TradeAIPro() {
       loss:[],valAcc:[],bestAcc:0,dataSize:0,
       featureImport:[],prediction:{},lastTrained:null};
   });
-  const chatEnd = useRef(null);
   const liveR = useRef({}), posR = useRef([]), learnR = useRef(learn), chartR = useRef({});
   const sigsR  = useRef({}), autoOnR = useRef(false), riskR = useRef("low");
   const wlR = useRef([]); // 自選股清單的即時參照，讓信號計算迴圈能拿到最新清單（不再侷限於內建模擬股票）
@@ -1343,35 +1291,6 @@ export default function TradeAIPro() {
     setPf(pv=>({...pv,cash:+(pv.cash-(dir==="L"?price*qty:0)).toFixed(2)}));
     setModal({type:"ok",data:p});
   },[]);
-
-  // ── AI Chat ──────────────────────────────────────────────────
-  const sendChat = useCallback(async(msg)=>{
-    if(!msg.trim()||chatBusy) return;
-    setChat(c=>[...c,{role:"user",t:msg}]); setChatIn(""); setChatBusy(true);
-    const lrn=learnR.current;
-    const marketSnap=Object.entries(liveR.current).slice(0,6).map(([s,d])=>`${s}:NT$${d.price.toFixed(2)}(${d.pct>=0?"+":""}${d.pct.toFixed(2)}%)`).join(", ");
-    const topSig=Object.entries(sigs).filter(([,v])=>v.action!=="hold").slice(0,3).map(([s,v])=>`${s}:${v.action==="buy"?"買▲":"賣▼"}信心${v.conf}%`).join(", ");
-    try{
-      const r=await fetch("/api/anthropic",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:600,messages:[
-          {role:"user",content:`你是 TradeAI Pro 的 AI 當沖分析師，以繁體中文回答，精簡專業控制在120字以內。
-市況：${marketSnap} | 熱門信號：${topSig||"無"} | 自動交易：${autoOn?"運行（"+RISK_CFG[risk].label+")":"停止"} | AI勝率：${lrn.trades>0?(lrn.wins/lrn.trades*100).toFixed(1):0}%(${lrn.trades}次) | AI信心：${lrn.conf}%
-用戶：${msg}`}
-        ]})});
-      const d=await r.json();
-      if(!r.ok){
-        const errMsg=d?.error?.message||d?.detail||`伺服器錯誤(${r.status})`;
-        setChat(c=>[...c,{role:"ai",t:`連線失敗：${errMsg}`}]);
-        setChatBusy(false);
-        return;
-      }
-      const txt=(d.content?.[0]?.text||"暫時無法回應，請稍後再試。").replace(/```json|```/g,"").trim();
-      setChat(c=>[...c,{role:"ai",t:txt}]);
-    }catch(e){setChat(c=>[...c,{role:"ai",t:`網路異常：${e.message||"無法連接伺服器"}，請稍後重試。`}]);}
-    setChatBusy(false);
-  },[chatBusy,sigs,autoOn,risk]);
-
-  useEffect(()=>{chatEnd.current?.scrollIntoView({behavior:"smooth"});},[chat]);
 
   // ── 永豐真實帳戶連接（透過 /api/sinopac 代理呼叫 Railway 後端，僅讀取帳戶資訊，不影響AI模擬下單）────
   const connectBroker = useCallback(async()=>{
@@ -3023,7 +2942,6 @@ export default function TradeAIPro() {
         {tab==="market" && <MarketTab selSym={selSym} setSelSym={setSelSym} charts={charts} live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} manQty={manQty} setManQty={setManQty} placeTrade={placeTrade} broker={broker} realBases={realBases} onRealPrice={(sym,price)=>setRealBases(b=>({...b,[sym]:price}))}/>}
         {tab==="auto"   && AutoTab()}
         {tab==="learn"  && LearnTab()}
-        {tab==="chat"   && <ChatTab chat={chat} chatBusy={chatBusy} chatEnd={chatEnd} chatIn={chatIn} setChatIn={setChatIn} sendChat={sendChat}/>}
         {tab==="set"    && SettingsTab()}
       </div>
 
