@@ -1666,58 +1666,41 @@ export default function TradeAIPro() {
           </div>
         </Card>
 
-        {/* 潛力股雷達：依技術指標綜合強度排序自選股（非預測，僅反映目前技術面動能） */}
-        {wl.length>0&&(()=>{
-          const scored=wl.map(sym=>{
-            const sig=sigs[sym]||{};
-            const momentum=(N(sig.conf)-50)*1.0+(N(sig.volRatio,1)-1)*15+(N(sig.trendStr)*20);
-            return{sym,sig,momentum};
-          }).filter(x=>x.sig.action&&x.sig.action!=="hold").sort((a,b)=>Math.abs(b.momentum)-Math.abs(a.momentum)).slice(0,3);
-          if(scored.length===0) return null;
-          return(
-            <div className="space-y-2">
-              <div className="text-[9px] text-gray-600 uppercase tracking-wider px-1 flex items-center gap-1.5">
-                <Zap className="w-3 h-3 text-amber-400"/>潛力股雷達（技術面動能排行，非預測）
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {scored.map(({sym,sig,momentum})=>(
-                  <Card key={sym} onClick={()=>{setSelSym(sym);setTab("market");}} cls="p-2.5 text-center">
-                    <div className="text-[10px] font-mono font-bold text-white">{sym}</div>
-                    <div className={`text-[9px] mt-1 font-bold ${sig.action==="buy"?"text-emerald-400":"text-red-400"}`}>{sig.action==="buy"?"▲動能偏多":"▼動能偏空"}</div>
-                    <div className="text-[8px] text-gray-600 mt-0.5">強度 {Math.abs(momentum).toFixed(0)}</div>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Top signals */}
+        {/* AI飆股雷達 TOP5：依技術面綜合動能排序自選股（非預測，僅反映目前技術面強度），取代原本跟市場頁重複的即時信號清單 */}
         <div className="space-y-2">
-          <div className="text-[9px] text-gray-600 uppercase tracking-wider px-1">即時信號</div>
-          {wl.slice(0,5).map(sym=>{
-            const sig=sigs[sym]||{action:"hold",conf:50,rsi:50};
-            const lp=live[sym]||{};
-            return(
-              <Card key={sym} onClick={()=>setModal({type:"sigModal",data:{sym,sig,lp}})} cls="p-3 flex items-center gap-3">
-                <div className={`w-1 h-8 rounded-full flex-shrink-0 ${sig.action==="buy"?"bg-emerald-400":sig.action==="sell"?"bg-red-400":"bg-gray-700"}`}/>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold text-white">{sym}</span>
-                    <span className="text-[9px] text-gray-600">{getStockName(sym)}</span>
+          <div className="text-[9px] text-gray-600 uppercase tracking-wider px-1 flex items-center gap-1.5">
+            <Zap className="w-3 h-3 text-amber-400"/>AI飆股雷達 TOP5（技術面動能排行，非預測保證）
+          </div>
+          {(()=>{
+            const scored=wl.map(sym=>{
+              const sig=sigs[sym]||{action:"hold",conf:50,rsi:50};
+              const momentum=(N(sig.conf)-50)*1.0+(N(sig.volRatio,1)-1)*15+(N(sig.trendStr)*20);
+              return{sym,sig,momentum};
+            }).sort((a,b)=>Math.abs(b.momentum)-Math.abs(a.momentum)).slice(0,5);
+            if(scored.length===0) return <div className="text-[10px] text-gray-600 text-center py-4">尚無自選股，請先到市場頁新增</div>;
+            return scored.map(({sym,sig,momentum})=>{
+              const lp=live[sym]||{};
+              return(
+                <Card key={sym} onClick={()=>setModal({type:"sigModal",data:{sym,sig,lp}})} cls="p-3 flex items-center gap-3">
+                  <div className={`w-1 h-8 rounded-full flex-shrink-0 ${sig.action==="buy"?"bg-emerald-400":sig.action==="sell"?"bg-red-400":"bg-gray-700"}`}/>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold text-white">{sym}</span>
+                      <span className="text-[9px] text-gray-600">{getStockName(sym)}</span>
+                    </div>
+                    <div className="text-[9px] text-gray-600">RSI {sig.rsi!=null?sig.rsi.toFixed(0):"—"} · 信心 {sig.conf}% · 動能強度 {Math.abs(momentum).toFixed(0)}</div>
                   </div>
-                  <div className="text-[9px] text-gray-600">RSI {sig.rsi!=null?sig.rsi.toFixed(0):"—"} · 信心 {sig.conf}%</div>
-                </div>
-                <div className="text-right mr-2">
-                  <div className="text-sm font-mono font-bold text-white">{N(lp.price,STOCKS[sym]?.base??realBases[sym]??0).toFixed(2)}</div>
-                  <div className={`text-[9px] ${CC(lp.pct)}`}>{N(lp.pct)>=0?"▲":"▼"}{Math.abs(N(lp.pct)).toFixed(2)}%</div>
-                </div>
-                <Chip c={sig.action==="buy"?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":sig.action==="sell"?"bg-red-500/10 border-red-500/25 text-red-400":"border-gray-800 text-gray-700"}>
-                  {sig.action==="buy"?"買▲":sig.action==="sell"?"賣▼":"─"}
-                </Chip>
-              </Card>
-            );
-          })}
+                  <div className="text-right mr-2">
+                    <div className="text-sm font-mono font-bold text-white">{N(lp.price,STOCKS[sym]?.base??realBases[sym]??0).toFixed(2)}</div>
+                    <div className={`text-[9px] ${CC(lp.pct)}`}>{N(lp.pct)>=0?"▲":"▼"}{Math.abs(N(lp.pct)).toFixed(2)}%</div>
+                  </div>
+                  <Chip c={sig.action==="buy"?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":sig.action==="sell"?"bg-red-500/10 border-red-500/25 text-red-400":"border-gray-800 text-gray-700"}>
+                    {sig.action==="buy"?"買▲":sig.action==="sell"?"賣▼":"─"}
+                  </Chip>
+                </Card>
+              );
+            });
+          })()}
         </div>
 
       </div>
@@ -2978,7 +2961,6 @@ export default function TradeAIPro() {
             </div>
             <div className="flex items-baseline gap-1.5">
               <span className="text-sm font-bold tracking-wide bg-gradient-to-r from-cyan-300 to-violet-300 bg-clip-text text-transparent">TradeAI Pro</span>
-              <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${tradeMode==="real"?"text-red-400 border-red-500/40 bg-red-500/10":"text-amber-400 border-amber-500/40 bg-amber-500/10"}`}>{tradeMode==="real"?"LIVE":"TEST"}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
