@@ -1607,10 +1607,53 @@ export default function TradeAIPro() {
           })}
         </div>
 
-        {/* Auto log */}
-        {alog.length>0&&(
-          <Card cls="p-3">
-            {/* 後端24h自動交易卡片 */}
+      </div>
+    );
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // ▶ AUTO TRADING
+  // ═══════════════════════════════════════════════════════════════
+  const AutoTab = () => {
+    const cfg=RISK_CFG[risk];
+    return(
+      <div className="space-y-3">
+        {/* Control */}
+        <Card cls="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="text-sm font-bold text-white">AI 自動當沖</div>
+              <div className="text-[9px] text-gray-600 mt-0.5">真實市場數據 × 虛擬資金測試</div>
+            </div>
+            <button onClick={()=>setAutoOn(v=>!v)}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold border transition-all ${autoOn?"bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/15":"bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/15"}`}>
+              {autoOn?<><Pause className="w-4 h-4"/>暫停</>:<><Play className="w-4 h-4"/>啟動</>}
+            </button>
+          </div>
+          {/* Risk selector */}
+          <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">風險等級</div>
+          <div className="grid grid-cols-3 gap-2">
+            {Object.entries(RISK_CFG).map(([key,c])=>(
+              <button key={key} onClick={()=>setRisk(key)}
+                className={`py-3 rounded-xl border text-xs font-bold transition-all ${risk===key?`${c.bg} ${c.c}`:"border-[#0d2137] text-gray-600 bg-[#070f1c]"}`}>
+                <div>{c.label}</div>
+                <div className="text-[9px] opacity-60 font-normal mt-0.5">信心{c.minConf}%↑</div>
+              </button>
+            ))}
+          </div>
+        </Card>
+
+        {/* Params */}
+        <Card onClick={()=>setModal({type:"riskModal",data:{risk}})} cls="p-3">
+          <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">當前參數 — 點擊詳情</div>
+          <div className="grid grid-cols-4 gap-2 text-center">
+            {[{l:"倉位",v:`${cfg.alloc*100}%`},{l:"停損",v:`${cfg.sl}%`},{l:"止盈",v:`${cfg.tp}%`},{l:"最多持倉",v:`${cfg.maxPos}筆`}].map(x=>(
+              <div key={x.l}><div className="text-[9px] text-gray-600">{x.l}</div><div className="text-xs font-mono font-bold text-white">{x.v}</div></div>
+            ))}
+          </div>
+        </Card>
+
+        {/* 後端24h自動交易卡片（連接永豐後才顯示，可關閉瀏覽器持續運行） */}
         {broker.status==="connected"&&(
           <Card cls="p-4 border border-violet-500/20">
             <div className="flex items-center justify-between mb-3">
@@ -1663,7 +1706,11 @@ export default function TradeAIPro() {
             )}
           </Card>
         )}
-        <div className="flex items-center justify-between mb-2">
+
+        {/* Auto log（本機虛擬盤訊號日誌） */}
+        {alog.length>0&&(
+          <Card cls="p-3">
+            <div className="flex items-center justify-between mb-2">
               <div className="text-[9px] text-gray-600 uppercase tracking-wider">自動交易日誌</div>
               <div className="flex gap-1">
                 {riskGuard.pauseUntil>Date.now()&&<Chip c="border-amber-500/30 text-amber-400 bg-amber-500/10">冷靜期</Chip>}
@@ -1682,51 +1729,6 @@ export default function TradeAIPro() {
             ))}
           </Card>
         )}
-      </div>
-    );
-  };
-
-  // ═══════════════════════════════════════════════════════════════
-  // ▶ AUTO TRADING
-  // ═══════════════════════════════════════════════════════════════
-  const AutoTab = () => {
-    const cfg=RISK_CFG[risk];
-    return(
-      <div className="space-y-3">
-        {/* Control */}
-        <Card cls="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="text-sm font-bold text-white">AI 自動當沖</div>
-              <div className="text-[9px] text-gray-600 mt-0.5">真實市場數據 × 虛擬資金測試</div>
-            </div>
-            <button onClick={()=>setAutoOn(v=>!v)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold border transition-all ${autoOn?"bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/15":"bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/15"}`}>
-              {autoOn?<><Pause className="w-4 h-4"/>暫停</>:<><Play className="w-4 h-4"/>啟動</>}
-            </button>
-          </div>
-          {/* Risk selector */}
-          <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">風險等級</div>
-          <div className="grid grid-cols-3 gap-2">
-            {Object.entries(RISK_CFG).map(([key,c])=>(
-              <button key={key} onClick={()=>setRisk(key)}
-                className={`py-3 rounded-xl border text-xs font-bold transition-all ${risk===key?`${c.bg} ${c.c}`:"border-[#0d2137] text-gray-600 bg-[#070f1c]"}`}>
-                <div>{c.label}</div>
-                <div className="text-[9px] opacity-60 font-normal mt-0.5">信心{c.minConf}%↑</div>
-              </button>
-            ))}
-          </div>
-        </Card>
-
-        {/* Params */}
-        <Card onClick={()=>setModal({type:"riskModal",data:{risk}})} cls="p-3">
-          <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">當前參數 — 點擊詳情</div>
-          <div className="grid grid-cols-4 gap-2 text-center">
-            {[{l:"倉位",v:`${cfg.alloc*100}%`},{l:"停損",v:`${cfg.sl}%`},{l:"止盈",v:`${cfg.tp}%`},{l:"最多持倉",v:`${cfg.maxPos}筆`}].map(x=>(
-              <div key={x.l}><div className="text-[9px] text-gray-600">{x.l}</div><div className="text-xs font-mono font-bold text-white">{x.v}</div></div>
-            ))}
-          </div>
-        </Card>
 
         {/* Positions */}
         {pos.length>0&&(
