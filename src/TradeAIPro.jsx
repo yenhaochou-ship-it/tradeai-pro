@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ComposedChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { Brain, RefreshCw, X, ChevronRight, Activity, Send, Play, Pause, Zap, TrendingUp, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Brain, RefreshCw, X, ChevronRight, Activity, Send, Play, Pause, Zap, TrendingUp, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════
 // DESIGN TOKENS — Obsidian / Cyber Terminal
@@ -960,6 +960,30 @@ export default function TradeAIPro() {
   },[]);
   useEffect(()=>{ if(broker.status==="connected") fetchInstFlows(); },[broker.status,fetchInstFlows]);
 
+  // ── 真實歷史K棒定期刷新（避免抓一次後RSI/MACD用越來越舊的歷史資料）──
+  useEffect(()=>{
+    if(broker.status!=="connected") return;
+    let cancelled=false;
+    const refresh=async()=>{
+      const realSyms=wl.filter(sym=>realSymR.current.has(sym)&&!STOCKS[sym]);
+      if(realSyms.length===0) return;
+      const results=await Promise.allSettled(realSyms.map(async sym=>{
+        const r=await fetch(`/api/sinopac?path=history/${encodeURIComponent(sym)}?bars=90`);
+        const d=await r.json();
+        if(!r.ok||!d.bars||d.bars.length<20) throw new Error("no data");
+        return{sym,bars:d.bars};
+      }));
+      if(cancelled) return;
+      const updates={};
+      results.forEach(r=>{ if(r.status==="fulfilled") updates[r.value.sym]=r.value.bars; });
+      if(Object.keys(updates).length>0){
+        setCharts(prev=>({...prev,...updates}));
+      }
+    };
+    const iv=setInterval(refresh,60000); // 每60秒刷新一次真實歷史K棒
+    return()=>{cancelled=true;clearInterval(iv);};
+  },[broker.status,wl]);
+
   // ── 真實報價輪詢（broker 連線後持續向後端抓真實即時股價，取代模擬數據）──
   useEffect(()=>{
     if(broker.status!=="connected") return;
@@ -1016,22 +1040,35 @@ export default function TradeAIPro() {
     setRealBases(p=>{ const n={...p}; removed.forEach(s=>delete n[s]); return n; });
   },[wl]);
 
-  // ── 自動補充新增自選股的圖表資料（已連線時優先抓真實報價當基準，避免顯示錯誤價格）──
+  // ── 自動補充新增自選股的圖表資料（已連線時抓真實歷史K棒，取代亂數模擬，讓RSI/MACD/ML訓練基於真實價格）──
   useEffect(()=>{
     const missing=wl.filter(sym=>!charts[sym]);
     if(missing.length===0) return;
     (async()=>{
       const bases={};
       const newNames={};
-      // 已連線：先嘗試抓真實報價當作這支股票的基準價（不等15秒輪詢，立即查）
+      const realCharts={}; // {sym: 真實K棒陣列} 成功取得真實歷史資料的股票
+      // 已連線：嘗試抓真實歷史K棒（取代亂數模擬），失敗才退回模擬
       if(brokerR.current?.status==="connected"){
         await Promise.all(missing.map(async sym=>{
-          if(STOCKS[sym]?.base){ bases[sym]=STOCKS[sym].base; return; } // 美股/內建股票本來就有模擬基準
+          if(STOCKS[sym]?.base){ bases[sym]=STOCKS[sym].base; return; } // 美股/內建股票本來就有模擬基準，永豐無真實資料
           try{
-            const r=await fetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
-            const d=await r.json();
-            if(r.ok&&d.price){ bases[sym]=Number(d.price); realSymR.current.add(sym); if(d.name) newNames[sym]=d.name; }
+            const hr=await fetch(`/api/sinopac?path=history/${encodeURIComponent(sym)}?bars=90`);
+            const hd=await hr.json();
+            if(hr.ok&&hd.bars&&hd.bars.length>=20){
+              realCharts[sym]=hd.bars;
+              bases[sym]=hd.bars[hd.bars.length-1].close;
+              realSymR.current.add(sym);
+            }
           }catch{}
+          // 沒有真實歷史K棒時，至少嘗試抓目前報價當基準（用於模擬圖表的起點，比預設100準確）
+          if(bases[sym]==null){
+            try{
+              const r=await fetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
+              const d=await r.json();
+              if(r.ok&&d.price){ bases[sym]=Number(d.price); realSymR.current.add(sym); if(d.name) newNames[sym]=d.name; }
+            }catch{}
+          }
         }));
       }
       if(Object.keys(newNames).length>0) setRealNames(prev=>({...prev,...newNames}));
@@ -1043,12 +1080,16 @@ export default function TradeAIPro() {
       });
       setCharts(prev=>{
         const next={...prev};
-        missing.forEach(sym=>{ next[sym]=genHistory(bases[sym]); });
+        missing.forEach(sym=>{ next[sym]=realCharts[sym]||genHistory(bases[sym]); });
         return next;
       });
       setSparks(prev=>{
         const next={...prev};
-        missing.forEach(sym=>{ next[sym]=genSpark(bases[sym]); });
+        missing.forEach(sym=>{
+          next[sym]=realCharts[sym]
+            ? realCharts[sym].slice(-24).map(b=>({v:b.close}))
+            : genSpark(bases[sym]);
+        });
         return next;
       });
       setLive(prev=>{
@@ -1141,17 +1182,24 @@ export default function TradeAIPro() {
       const streak=win?lrn.streak+1:0;
       const conf=Math.min(95,+(50+(wr-0.5)*90+Math.min(streak*2,15)).toFixed(1));
       const bonus=Math.max(0,Math.min(18,(wr-0.55)*60));
-      // Adaptive weight update
+      // Adaptive weight update（修正：原本引用不存在的rsiScore/macdScore欄位，導致獲利時權重永遠不會上調，
+      // 只有虧損時下調，現在改用真實存在的信號欄位判斷各指標當時是否方向一致，四個權重都會調整）
       const newW2={...lrn.weights};
       if(p.sigDetails){
-        const alpha=0.05;
-        if(win){
-          if(p.sigDetails.rsiScore*p.entry>0) newW2.rsi=Math.min(0.5,newW2.rsi+alpha);
-          if(p.sigDetails.macdScore*p.entry>0) newW2.macd=Math.min(0.5,newW2.macd+alpha);
-        } else {
-          newW2.rsi=Math.max(0.1,newW2.rsi-alpha/2);
-          newW2.macd=Math.max(0.1,newW2.macd-alpha/2);
-        }
+        const d=p.sigDetails, alpha=0.04, isLong=p.dir==="L";
+        // 判斷當時各指標是否與這筆交易方向一致（一致=該指標有貢獻，依勝負決定加減權重）
+        const rsiAgreed = isLong ? d.rsi<45 : d.rsi>55;
+        const macdAgreed = isLong ? d.freshGolden : d.freshDeath;
+        const maAgreed = d.trendStr>0.55; // 趨勢夠強時MA排列才有參考價值，方向已包含在bull/bear分數中
+        const volAgreed = d.volRatio>1.15; // 成交量放大確認
+
+        const adj=(agreed,key)=>{
+          if(agreed==null) return; // 沒有足夠資料就不調整該項
+          const delta = win ? (agreed?alpha:-alpha*0.5) : (agreed?-alpha:alpha*0.3);
+          newW2[key]=Math.max(0.08,Math.min(0.5,newW2[key]+delta));
+        };
+        adj(rsiAgreed,"rsi"); adj(macdAgreed,"macd"); adj(maAgreed,"ma"); adj(volAgreed,"vol");
+
         const sum=Object.values(newW2).reduce((s,v)=>s+v,0);
         Object.keys(newW2).forEach(k=>{newW2[k]=+(newW2[k]/sum).toFixed(3);});
       }
@@ -1748,19 +1796,20 @@ export default function TradeAIPro() {
               關閉瀏覽器後仍持續交易 · 台股時段 09:00-13:25 · 自動使用目前風險等級（{RISK_CFG[risk].label}）與自選股清單
             </div>
             {backendAuto.status?.paper_mode!=null&&backendAuto.enabled&&(
-              <div className={`mb-3 text-[10px] px-3 py-2 rounded-lg border ${backendAuto.status.paper_mode?"bg-cyan-500/10 border-cyan-500/25 text-cyan-400":"bg-red-500/10 border-red-500/25 text-red-400"}`}>
-                {backendAuto.status.paper_mode?"📝 目前為模擬下單：用真實股價波動計算損益，不會花真錢":"🔴 目前為真實下單：會送出真實委託，花真實的錢"}
+              <div className={`mb-3 text-[10px] px-3 py-2 rounded-lg border flex items-center gap-2 ${backendAuto.status.paper_mode?"bg-cyan-500/10 border-cyan-500/25 text-cyan-400":"bg-red-500/10 border-red-500/25 text-red-400"}`}>
+                {backendAuto.status.paper_mode?<FileText className="w-3.5 h-3.5 flex-shrink-0"/>:<Flame className="w-3.5 h-3.5 flex-shrink-0"/>}
+                {backendAuto.status.paper_mode?"目前為模擬下單：用真實股價波動計算損益，不會花真錢":"目前為真實下單：會送出真實委託，花真實的錢"}
               </div>
             )}
             {!backendAuto.enabled&&(
               <div className="flex gap-2 mb-3">
                 <button onClick={()=>setBackendPaperMode(true)}
-                  className={`flex-1 py-2 rounded-lg text-[10px] font-bold border ${backendPaperMode?"bg-cyan-500/15 border-cyan-500/40 text-cyan-400":"border-[#0d2137] text-gray-600"}`}>
-                  📝 模擬下單（真實股價，不花真錢）
+                  className={`flex-1 py-2 rounded-lg text-[10px] font-bold border flex items-center justify-center gap-1.5 ${backendPaperMode?"bg-cyan-500/15 border-cyan-500/40 text-cyan-400":"border-[#0d2137] text-gray-600"}`}>
+                  <FileText className="w-3 h-3"/>模擬下單（真實股價，不花真錢）
                 </button>
                 <button onClick={()=>setBackendPaperMode(false)}
-                  className={`flex-1 py-2 rounded-lg text-[10px] font-bold border ${!backendPaperMode?"bg-red-500/15 border-red-500/40 text-red-400":"border-[#0d2137] text-gray-600"}`}>
-                  🔴 真實下單
+                  className={`flex-1 py-2 rounded-lg text-[10px] font-bold border flex items-center justify-center gap-1.5 ${!backendPaperMode?"bg-red-500/15 border-red-500/40 text-red-400":"border-[#0d2137] text-gray-600"}`}>
+                  <Flame className="w-3 h-3"/>真實下單
                 </button>
               </div>
             )}
