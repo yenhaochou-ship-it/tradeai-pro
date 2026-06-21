@@ -8,7 +8,7 @@ export default async function handler(req, res) {
 
   const backendUrl = process.env.SINOPAC_BACKEND_URL;
   if (!backendUrl) {
-    return res.status(500).json({ error: '未設定 SINOPAC_BACKEND_URL 環境變數' });
+    return res.status(500).json({ error: '未設定 SINOPAC_BACKEND_URL 環境變數', detail: '未設定 SINOPAC_BACKEND_URL 環境變數' });
   }
 
   // 從 query string 取得路徑，例如 /api/sinopac?path=portfolio
@@ -29,6 +29,6 @@ export default async function handler(req, res) {
 
     return res.status(200).json(data);
   } catch (error) {
-    return res.status(500).json({ error: `後端連接失敗：${error.message}` });
+    return res.status(500).json({ error: `後端連接失敗：${error.message}`, detail: `後端連接失敗：${error.message}` });
   }
 }
