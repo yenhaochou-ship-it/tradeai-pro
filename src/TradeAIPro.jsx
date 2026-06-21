@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ComposedChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { Brain, RefreshCw, X, ChevronRight, Activity, Send, Play, Pause, Zap, TrendingUp, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame } from "lucide-react";
+import { Brain, RefreshCw, X, ChevronRight, Activity, Send, Play, Pause, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, CheckCircle2, AlertCircle, XCircle, Target, DollarSign, Circle, Lightbulb, Info, Lock } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════
 // DESIGN TOKENS — Obsidian / Cyber Terminal
@@ -1216,11 +1216,11 @@ export default function TradeAIPro() {
     if(rg.pauseUntil>now) return; // 連虧冷靜期
     const dailyLossPct=Math.abs(Math.min(0,rg.dailyLoss))/startingCapitalR.current*100;
     if(dailyLossPct>=3){
-      setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym:"系統",act:"⛔日損停損",price:0,conf:0,note:`今日虧損${dailyLossPct.toFixed(1)}%，已停止自動交易`},...l.slice(0,49)]);
+      setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym:"系統",act:"[停損]日損停損",price:0,conf:0,note:`今日虧損${dailyLossPct.toFixed(1)}%，已停止自動交易`},...l.slice(0,49)]);
       return;
     }
     if(rg.dailyProfit/startingCapitalR.current*100>=8){
-      setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym:"系統",act:"🔒鎖定獲利",price:0,conf:0,note:`今日獲利${(rg.dailyProfit/startingCapitalR.current*100).toFixed(1)}%，已停止`},...l.slice(0,49)]);
+      setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym:"系統",act:"[鎖定]獲利",price:0,conf:0,note:`今日獲利${(rg.dailyProfit/startingCapitalR.current*100).toFixed(1)}%，已停止`},...l.slice(0,49)]);
       return;
     }
     const cLive=liveR.current, cPos=posR.current, cChart=chartR.current, cLearn=learnR.current;
@@ -1236,7 +1236,7 @@ export default function TradeAIPro() {
         if(pp<=-cfg.sl||pp>=cfg.tp||timeUp||(existing.dir==="L"&&sig.action==="sell")||(existing.dir==="S"&&sig.action==="buy")){
           const isProfit=pp>=cfg.tp, isLoss=pp<=-cfg.sl;
           closePosById(existing.id,true);
-          setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:"出場",price:lp.price,conf:sig.conf,note:isProfit?"✅止盈":isLoss?"🔴停損":timeUp?"⏱️持倉超時了結":"信號反轉"},...l.slice(0,49)]);
+          setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:"出場",price:lp.price,conf:sig.conf,note:isProfit?"止盈":isLoss?"停損":timeUp?"持倉超時了結":"信號反轉"},...l.slice(0,49)]);
           // 風控護盾：連虧計數（用實際股數計算金額，不能直接用「張」數，否則風控門檻形同虛設）
           const sharesEx=existing.shares??(isTWStock(sym)?existing.qty*1000:existing.qty);
           if(isLoss){
@@ -1273,13 +1273,13 @@ export default function TradeAIPro() {
       if(tradeModeR.current==="real"){
         // 真實盤：送出真實委託，同時更新模擬持倉讓畫面即時顯示
         if(brokerR.current?.status!=="connected"){
-          setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:"⚠️未連接",price,conf:sig.conf,note:"真實下單需先連接永豐"},...l.slice(0,49)]);
+          setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:"未連接",price,conf:sig.conf,note:"真實下單需先連接永豐"},...l.slice(0,49)]);
           return;
         }
         fetch("/api/sinopac?path=order",{method:"POST",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({symbol:sym,direction:dir==="L"?"buy":"sell",quantity:qty,price:price,order_type:"市價"})
         }).catch(e=>console.error("Real auto order failed:",e));
-        setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:dir==="L"?"🔴AI真實買▲":"🔴AI真實賣▼",price,conf:sig.conf,rsi:sig.rsi},...l.slice(0,49)]);
+        setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:dir==="L"?"AI真實買▲":"AI真實賣▼",price,conf:sig.conf,rsi:sig.rsi},...l.slice(0,49)]);
       } else {
         // 虛擬盤：僅更新畫面狀態
         setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:dir==="L"?"做多▲":"做空▼",price,conf:sig.conf,rsi:sig.rsi},...l.slice(0,49)]);
@@ -1361,13 +1361,13 @@ export default function TradeAIPro() {
       const d=await r.json();
       if(!r.ok){
         const errMsg=d?.error?.message||d?.detail||`伺服器錯誤(${r.status})`;
-        setChat(c=>[...c,{role:"ai",t:`⚠️ 連線失敗：${errMsg}`}]);
+        setChat(c=>[...c,{role:"ai",t:`連線失敗：${errMsg}`}]);
         setChatBusy(false);
         return;
       }
       const txt=(d.content?.[0]?.text||"暫時無法回應，請稍後再試。").replace(/```json|```/g,"").trim();
       setChat(c=>[...c,{role:"ai",t:txt}]);
-    }catch(e){setChat(c=>[...c,{role:"ai",t:`⚠️ 網路異常：${e.message||"無法連接伺服器"}，請稍後重試。`}]);}
+    }catch(e){setChat(c=>[...c,{role:"ai",t:`網路異常：${e.message||"無法連接伺服器"}，請稍後重試。`}]);}
     setChatBusy(false);
   },[chatBusy,sigs,autoOn,risk]);
 
@@ -1470,7 +1470,7 @@ export default function TradeAIPro() {
     setBroker(b=>({...b,status:"disconnected",account:null,balance:null,error:null}));
     // 安全機制：中斷連接時若仍在真實盤模式，強制退回虛擬盤，避免畫面顯示「真實盤」卻其實沒有連接的混淆狀態
     setTradeMode(m=>{
-      if(m==="real"){ setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym:"系統",act:"⚠️已退回虛擬盤",price:0,conf:0,note:"永豐連接已中斷，真實盤無法繼續"},...l.slice(0,49)]); return "virtual"; }
+      if(m==="real"){ setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym:"系統",act:"已退回虛擬盤",price:0,conf:0,note:"永豐連接已中斷，真實盤無法繼續"},...l.slice(0,49)]); return "virtual"; }
       return m;
     });
   },[]);
@@ -2212,14 +2212,14 @@ export default function TradeAIPro() {
               {broker.status==="connecting" ? <><RefreshCw className="w-3 h-3 animate-spin"/>連接中...</> : "連接真實帳戶"}
             </button>
             <div className="text-[9px] text-gray-600 leading-relaxed">連接後將自動讀取真實帳戶餘額與持倉。下單行為由上方「虛擬盤/真實盤」切換決定——虛擬盤僅模擬，真實盤會送出真實委託，請在自動分頁確認目前模式。</div>
-            <div className="text-[9px] text-amber-400/70 mt-1.5 leading-relaxed">⚠ 當沖需符合法規資格（開戶滿3個月＋近1年成交達10筆＋已簽署當沖風險預告書），請先確認已在永豐開通，否則委託會被拒絕。零股不可當沖，僅整張可當沖（本系統已固定使用張為單位）。</div>
-            <div className="text-[9px] text-gray-700 mt-1.5">💡 已記住的金鑰下次開啟網站會自動連接，不需要再手動按一次。</div>
+            <div className="text-[9px] text-amber-400/70 mt-1.5 leading-relaxed">當沖需符合法規資格（開戶滿3個月＋近1年成交達10筆＋已簽署當沖風險預告書），請先確認已在永豐開通，否則委託會被拒絕。零股不可當沖，僅整張可當沖（本系統已固定使用張為單位）。</div>
+            <div className="text-[9px] text-gray-700 mt-1.5 flex items-center gap-1"><Lightbulb className="w-3 h-3 flex-shrink-0"/>已記住的金鑰下次開啟網站會自動連接，不需要再手動按一次。</div>
           </div>
         ) : (
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 mb-2"><ShieldCheck className="w-3.5 h-3.5"/>身分驗證成功</div>
             {broker.account?.ca_activated===true&&<div className="flex items-center gap-1 text-[9px] text-cyan-400 mb-2"><ShieldCheck className="w-3 h-3"/>CA 憑證已啟用（可查詢庫存）</div>}
-            {broker.account?.ca_activated===false&&<div className="text-[9px] text-amber-400 mb-2">⚠ CA 憑證未啟用 — 持倉查詢可能為空，請確認 Railway 環境變數</div>}
+            {broker.account?.ca_activated===false&&<div className="text-[9px] text-amber-400 mb-2">CA 憑證未啟用 — 持倉查詢可能為空，請確認 Railway 環境變數</div>}
             {broker.account?.stock_account && (()=>{
               const a=broker.account.stock_account;
               const pid=(a.match(/person_id='([^']+)'/)||[])[1]||"";
@@ -2355,7 +2355,7 @@ export default function TradeAIPro() {
           真實盤：以「扣除T+2待交割款後的可用資金」× 此比例計算可動用金額（不是帳戶總餘額）。台灣股票一律以整張（1張=1000股）下單，零股不可當沖、依法不開放。
         </div>
         <div className="text-[9px] text-gray-700 mt-2 leading-relaxed">
-          ✓ 已串接永豐真實合約資料：自動檢查個股當沖資格（處置股/不符資格股票會被AI自動跳過）與漲跌停鎖死風險，避免送出必定失敗或無法沖銷的委託。
+          已串接永豐真實合約資料：自動檢查個股當沖資格（處置股/不符資格股票會被AI自動跳過）與漲跌停鎖死風險，避免送出必定失敗或無法沖銷的委託。
         </div>
       </Card>
       <Card cls="p-4">
@@ -2463,7 +2463,7 @@ export default function TradeAIPro() {
             <div className={`text-center py-4 rounded-xl border mb-4 ${sig.action==="buy"?"bg-emerald-500/10 border-emerald-500/25":sig.action==="sell"?"bg-red-500/10 border-red-500/25":"bg-[#0d2137] border-[#1a3050]"}`}>
               <div className={`text-3xl font-bold mb-1 ${sig.action==="buy"?"text-emerald-400":sig.action==="sell"?"text-red-400":"text-gray-500"}`}>{sig.action==="buy"?"▲ 做多信號":sig.action==="sell"?"▼ 做空信號":"觀望"}</div>
               <div className="text-sm text-gray-400">AI信心度 {sig.conf}%</div>
-              {sig.badTime&&<div className="text-[10px] text-amber-400 mt-1">⚠ 目前為低品質時段</div>}
+              {sig.badTime&&<div className="text-[10px] text-amber-400 mt-1">目前為低品質時段</div>}
             </div>
             {/* 多因子評分視覺化 */}
             <div className="bg-[#0a1422] border border-[#0d2137] rounded-xl p-3 mb-4">
@@ -2533,7 +2533,7 @@ export default function TradeAIPro() {
           <MW title={`${sym} · ${getStockName(sym)}`}>
             {instMatch&&(
               <div className={`flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border text-[10px] ${instMatch.total>=0?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":"bg-red-500/10 border-red-500/25 text-red-400"}`}>
-                <span className="font-bold">{instMatch.total>=0?"📈 三大法人買超":"📉 三大法人賣超"}</span>
+                <span className="font-bold flex items-center gap-1">{instMatch.total>=0?<TrendingUp className="w-3 h-3"/>:<TrendingDown className="w-3 h-3"/>}{instMatch.total>=0?"三大法人買超":"三大法人賣超"}</span>
                 <span className="ml-auto font-mono">{instMatch.total>=0?"+":""}{Math.round(instMatch.total/1000)}張（{instFlows.date}）</span>
               </div>
             )}
@@ -2591,7 +2591,7 @@ export default function TradeAIPro() {
         return(
           <MW title={`${d.sym} · 交易記錄`}>
             <div className={`text-center py-5 rounded-xl border mb-4 ${BC(d.pnl)}`}>
-              <div className="text-4xl mb-2">{d.win?"🎯":"📉"}</div>
+              <div className="flex justify-center mb-2">{d.win?<Target className="w-9 h-9 text-emerald-400"/>:<TrendingDown className="w-9 h-9 text-red-400"/>}</div>
               <div className={`text-2xl font-mono font-bold ${CC(d.pnl)}`}>NT${d.pnl>=0?"+":""}{F(d.pnl)}</div>
             </div>
             <Row l="方向" v={d.dir==="L"?"做多":"做空"} c={d.dir==="L"?"text-emerald-400":"text-red-400"}/>
@@ -2607,7 +2607,7 @@ export default function TradeAIPro() {
         return(
           <MW title="出場完成">
             <div className={`text-center py-6 rounded-xl border mb-4 ${BC(d.pnl)}`}>
-              <div className="text-5xl mb-3">{d.win?"🎯":"📉"}</div>
+              <div className="flex justify-center mb-3">{d.win?<Target className="w-12 h-12 text-emerald-400"/>:<TrendingDown className="w-12 h-12 text-red-400"/>}</div>
               <div className={`text-3xl font-mono font-bold ${CC(d.pnl)}`}>NT${d.pnl>=0?"+":""}{F(d.pnl)}</div>
               <div className={`text-sm mt-1 ${CC(d.pct)}`}>{d.pct>=0?"+":""}{F(d.pct)}%</div>
             </div>
@@ -2621,7 +2621,7 @@ export default function TradeAIPro() {
         return(
           <MW title="下單成功">
             <div className="text-center py-6">
-              <div className="text-5xl mb-3">{d.dir==="L"?"🟢":"🔴"}</div>
+              <div className="flex justify-center mb-3">{d.dir==="L"?<TrendingUp className="w-12 h-12 text-emerald-400"/>:<TrendingDown className="w-12 h-12 text-red-400"/>}</div>
               <div className="text-base font-bold text-white">{d.sym} · {d.dir==="L"?"做多▲":"做空▼"}</div>
               <div className="text-sm text-gray-500 mt-1">{d.qty}{isTWStock(d.sym)?"張":"股"} @ NT${N(d.entry).toFixed(2)}</div>
             </div>
@@ -2700,7 +2700,7 @@ export default function TradeAIPro() {
             <Row l="今日盈虧" v={`${N(pf.dayPnL)>=0?"+":""}NT$${F(pf.dayPnL)}`} c={CC(pf.dayPnL)}/>
             <Row l="累計盈虧" v={`${N(pf.cumPnL)>=0?"+":""}NT$${F(pf.cumPnL)}`} c={CC(pf.cumPnL)}/>
             <Row l="持倉數" v={`${pos.length}筆`}/>
-            <Row l="交易模式" v={tradeMode==="real"?"🔴 真實盤":"🟡 虛擬盤"} c={tradeMode==="real"?"text-red-400":"text-amber-400"}/>
+            <Row l="交易模式" v={tradeMode==="real"?"真實盤":"虛擬盤"} c={tradeMode==="real"?"text-red-400":"text-amber-400"}/>
           </MW>
         );
       case "riskModal": {
@@ -2809,16 +2809,16 @@ export default function TradeAIPro() {
                 );
               })}
               <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl p-3 text-[10px] text-amber-400 leading-relaxed">
-                ⚠ 回測使用模擬數據，實際市場因滑價、流動性等因素，真實勝率會低10-15%。目標：回測勝率70%+ → 實際勝率55-60%。達到穩定75%+ 需要更多真實交易數據累積。
+                回測使用模擬數據，實際市場因滑價、流動性等因素，真實勝率會低10-15%。目標：回測勝率70%+ → 實際勝率55-60%。達到穩定75%+ 需要更多真實交易數據累積。
               </div>
             </div>
           </MW>
         );
       case "realModeConfirm":
         return(
-          <MW title="⚠️ 切換至真實盤">
+          <MW title="切換至真實盤">
             <div className="text-center py-4 mb-2">
-              <div className="text-4xl mb-3">🔴</div>
+              <div className="flex justify-center mb-3"><Flame className="w-9 h-9 text-red-400"/></div>
               <div className="text-sm font-bold text-red-400 mb-3">即將切換為真實資金模式</div>
               <div className="text-[11px] text-gray-400 leading-relaxed text-left bg-red-500/10 border border-red-500/20 rounded-xl p-3 space-y-1.5">
                 <div>· 手動下單會先顯示確認視窗（張數/股數+估計金額），確認後才送出</div>
@@ -2842,7 +2842,7 @@ export default function TradeAIPro() {
         return(
           <MW title="確認真實委託">
             <div className="text-center py-3 mb-3">
-              <div className="text-4xl mb-2">{dir==="L"?"🟢":"🔴"}</div>
+              <div className="flex justify-center mb-2">{dir==="L"?<TrendingUp className="w-9 h-9 text-emerald-400"/>:<TrendingDown className="w-9 h-9 text-red-400"/>}</div>
               <div className="text-base font-bold text-white">{sym} · {getStockName(sym)}</div>
               <div className={`text-sm font-bold mt-1 ${dir==="L"?"text-emerald-400":"text-red-400"}`}>{dir==="L"?"買入（做多）":"賣出（做空）"}</div>
             </div>
@@ -2851,12 +2851,12 @@ export default function TradeAIPro() {
             )}
             {blocked&&(
               <div className="bg-red-500/10 border border-red-500/25 rounded-xl p-3 mb-3 text-[10px] text-red-400">
-                ⛔ {sym} {eligibility.reason||"今日不可當沖"}，已阻止下單
+                {sym} {eligibility.reason||"今日不可當沖"}，已阻止下單
               </div>
             )}
             {eligibility&&eligibility!=="loading"&&eligibility.can_day_trade&&dir==="S"&&eligibility.limit_up>0&&price>=eligibility.limit_up*0.985&&(
               <div className="bg-red-500/10 border border-red-500/25 rounded-xl p-3 mb-3 text-[10px] text-red-400">
-                🚨 價格已偏向漲停，做空若被軋到漲停鎖死將無法回補，可能產生借券費用與違約交割風險，請務必謹慎
+                價格已偏向漲停，做空若被軋到漲停鎖死將無法回補，可能產生借券費用與違約交割風險，請務必謹慎
               </div>
             )}
             {eligibility&&eligibility!=="loading"&&eligibility.can_day_trade&&dir==="L"&&eligibility.limit_down>0&&price<=eligibility.limit_down*1.005&&(
@@ -2886,7 +2886,7 @@ export default function TradeAIPro() {
         return(
           <MW title="真實委託已送出">
             <div className="text-center py-6">
-              <div className="text-5xl mb-3">{dir==="L"?"🟢":"🔴"}</div>
+              <div className="flex justify-center mb-3">{dir==="L"?<TrendingUp className="w-12 h-12 text-emerald-400"/>:<TrendingDown className="w-12 h-12 text-red-400"/>}</div>
               <div className="text-base font-bold text-white">{sym} · {dir==="L"?"買入▲":"賣出▼"}</div>
               <div className="text-sm text-gray-500 mt-1">{qty}{isTWStock(sym)?"張":"股"} @ NT${N(price).toFixed(2)}</div>
               <div className="mt-3 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">委託已送出永豐，實際成交以永豐大戶投為準</div>
@@ -2899,7 +2899,7 @@ export default function TradeAIPro() {
         return(
           <MW title="下單失敗">
             <div className="text-center py-6">
-              <div className="text-4xl mb-3">⚠️</div>
+              <div className="flex justify-center mb-3"><AlertTriangle className="w-9 h-9 text-amber-400"/></div>
               <div className="text-sm text-red-400 font-bold mb-2">真實委託失敗</div>
               <div className="text-xs text-gray-500">{data?.msg||"請確認帳戶連接狀態"}</div>
             </div>
@@ -2911,7 +2911,7 @@ export default function TradeAIPro() {
         return(
           <MW title="確認更改起始資金">
             <div className="text-center py-3 mb-2">
-              <div className="text-4xl mb-3">💰</div>
+              <div className="flex justify-center mb-3"><DollarSign className="w-9 h-9 text-amber-400"/></div>
               <div className="text-sm font-bold text-amber-400 mb-2">目前虛擬盤有持倉或交易記錄</div>
               <div className="text-[11px] text-gray-400 leading-relaxed text-left bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 space-y-1.5">
                 <div>· 目前持倉：{pos.length} 筆</div>
@@ -2938,7 +2938,7 @@ export default function TradeAIPro() {
         return(
           <MW title="已套用">
             <div className="text-center py-6">
-              <div className="text-5xl mb-3">✅</div>
+              <div className="flex justify-center mb-3"><CheckCircle2 className="w-12 h-12 text-emerald-400"/></div>
               <div className="text-base font-bold text-white">虛擬盤起始資金已更新</div>
               <div className="text-2xl font-mono font-bold text-cyan-400 mt-2">NT${newCapital.toLocaleString()}</div>
             </div>
@@ -2950,7 +2950,7 @@ export default function TradeAIPro() {
         return(
           <MW title="確認重置">
             <div className="text-center py-4 mb-4">
-              <div className="text-4xl mb-3">⚠️</div>
+              <div className="flex justify-center mb-3"><AlertTriangle className="w-9 h-9 text-amber-400"/></div>
               <div className="text-sm text-gray-400">將清除所有學習記錄、交易歷史及資金，恢復初始狀態</div>
             </div>
             <div className="flex gap-3">
@@ -2995,7 +2995,7 @@ export default function TradeAIPro() {
               }
             }} className={`flex items-center gap-1 text-[9px] px-2.5 py-1 rounded-full border font-bold transition-all ${tradeMode==="real"?"bg-red-500/20 border-red-500/50 text-red-400":"bg-[#0d2137] border-[#1a3050] text-gray-500 hover:text-gray-400"}`}>
               <div className={`w-1.5 h-1.5 rounded-full ${tradeMode==="real"?"bg-red-400 animate-pulse":"bg-gray-700"}`}/>
-              {tradeMode==="real"?"🔴真實盤":"虛擬盤"}
+              {tradeMode==="real"?"真實盤":"虛擬盤"}
             </button>
           </div>
         </div>
