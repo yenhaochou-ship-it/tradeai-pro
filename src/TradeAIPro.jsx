@@ -1440,6 +1440,15 @@ export default function TradeAIPro() {
     }catch{}
   },[]);
 
+  const resetBackendDailyStats = useCallback(async()=>{
+    try{
+      const r=await fetch("/api/sinopac?path=auto/reset-daily",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});
+      const d=await r.json();
+      if(r.ok) setBackendAuto(b=>({...b,status:d.state}));
+      setModal(null);
+    }catch{ setModal(null); }
+  },[]);
+
   // 自動恢復後端自動交易：若使用者之前啟動過、但輪詢發現後端目前是停止狀態（可能因Railway重啟/重新部署而遺失記憶體狀態），
   // 自動重新呼叫一次啟動，避免每次都要手動重新按
   const backendAutoResumedR = useRef(false);
@@ -1779,6 +1788,10 @@ export default function TradeAIPro() {
                 停止後端自動交易
               </button>
             )}
+            <button onClick={()=>setModal({type:"resetDailyConfirm"})}
+              className="w-full mt-2 py-2 bg-[#070f1c] border border-[#0d2137] text-gray-500 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1.5">
+              <RotateCcw className="w-3 h-3"/>今日損益清零（重新開始記錄）
+            </button>
             {backendAuto.log.length>0&&(
               <div className="mt-3 max-h-24 overflow-y-auto space-y-1">
                 {backendAuto.log.slice(0,5).map((l,i)=>(
@@ -2932,6 +2945,25 @@ export default function TradeAIPro() {
           </MW>
         );
       }
+      case "resetDailyConfirm":
+        return(
+          <MW title="今日損益清零">
+            <div className="text-center py-3 mb-2">
+              <div className="flex justify-center mb-3"><RotateCcw className="w-9 h-9 text-amber-400"/></div>
+              <div className="text-sm font-bold text-amber-400 mb-3">將清空後端今日累計統計</div>
+              <div className="text-[11px] text-gray-400 leading-relaxed text-left bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 space-y-1.5">
+                <div>· 今日損益、勝率、連勝/連虧計數會歸零</div>
+                <div>· 目前的交易紀錄列表會清空，從現在開始重新記錄</div>
+                <div>· 不會影響你的真實永豐帳戶或實際持倉</div>
+                <div>· 只清除這個系統自己記錄的統計數字</div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <button onClick={resetBackendDailyStats} className="w-full py-3 bg-amber-500/20 border border-amber-500/40 text-amber-400 rounded-xl text-sm font-bold">確認清零</button>
+              <button onClick={()=>setModal(null)} className="w-full py-2.5 bg-[#070f1c] border border-[#0d2137] text-gray-400 rounded-xl text-sm font-bold">取消</button>
+            </div>
+          </MW>
+        );
       case "resetModal":
         return(
           <MW title="確認重置">
