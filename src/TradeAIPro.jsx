@@ -1807,9 +1807,16 @@ export default function TradeAIPro() {
         )}
 
         {/* 後端24h自動交易的實際交易紀錄（跟上面的系統訊息日誌分開，這裡只列真正成交的進出場） */}
-        {broker.status==="connected"&&backendAuto.status?.trade_history?.length>0&&(
+        {broker.status==="connected"&&(
           <Card cls="p-4">
-            <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">後端交易紀錄（今日，共{backendAuto.status.trade_history.length}筆）</div>
+            <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">
+              後端交易紀錄（今日{backendAuto.status?.trade_history?.length>0?`，共${backendAuto.status.trade_history.length}筆`:""}）
+            </div>
+            {!backendAuto.status?.trade_history?.length?(
+              <div className="text-[10px] text-gray-600 text-center py-6">
+                {backendAuto.enabled?"尚無已完成交易，AI找到機會進出場後會顯示在這裡":"後端自動交易尚未啟動"}
+              </div>
+            ):(
             <div className="space-y-1.5 max-h-72 overflow-y-auto">
               {backendAuto.status.trade_history.map((t,i)=>(
                 <div key={i} className="bg-[#0a1422] rounded-lg p-2.5">
@@ -1833,6 +1840,7 @@ export default function TradeAIPro() {
                 </div>
               ))}
             </div>
+            )}
           </Card>
         )}
 
