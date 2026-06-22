@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ComposedChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { Brain, RefreshCw, X, ChevronRight, Activity, Play, Pause, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, CheckCircle2, AlertCircle, XCircle, Target, DollarSign, Circle, Lightbulb, Info, Lock } from "lucide-react";
+import { Brain, RefreshCw, X, ChevronRight, Activity, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, CheckCircle2, AlertCircle, XCircle, Target, DollarSign, Circle, Lightbulb, Info, Lock } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════
 // DESIGN TOKENS — Obsidian / Cyber Terminal
@@ -716,9 +716,7 @@ export default function TradeAIPro() {
   const [pos,      setPos]      = useState([]);
   const [hist,     setHist]     = useState([]);
   const [search,   setSearch]   = useState("");
-  const [autoOn,   setAutoOn]   = useState(false);
   const [risk,     setRisk]     = useState("low");
-  const [alog,     setAlog]     = useState([]);
   const [learn,    setLearn]    = useState(()=>{
     try{ const s=JSON.parse(localStorage.getItem("learn_state")||"null"); if(s&&typeof s==="object") return s; }catch{}
     return {phase:0,trades:0,wins:0,pnl:0,conf:30,streak:0,maxStreak:0,bonus:0,history:[],weights:{rsi:0.25,macd:0.35,ma:0.25,vol:0.15}};
@@ -730,13 +728,13 @@ export default function TradeAIPro() {
   const [broker,   setBroker]   = useState({status:"disconnected",apiKey:"",secretKey:"",account:null,balance:null,error:null}); // 永豐真實帳戶連接
   const [tradeMode, setTradeMode] = useState("virtual");
   const [autoCapPct, setAutoCapPct] = useState(()=>{ try{ return Number(localStorage.getItem("autoCapPct")||100); }catch{ return 100; } }); // AI自動交易可用資金%
-  const [riskGuard, setRiskGuard] = useState({pauseUntil:0,consecLoss:0,dailyLoss:0,dailyProfit:0});
   const [backendAuto, setBackendAuto] = useState({enabled:false,status:null,log:[],loading:false}); // 後端24h自動交易 // 風控護盾
+  const backendAutoR = useRef(false); // ref讓信心度計算等非同步流程能即時讀到後端自動交易是否運行中
+  useEffect(()=>{backendAutoR.current=backendAuto.enabled;},[backendAuto.enabled]);
   const [backendPaperMode, setBackendPaperMode] = useState(()=>{
     try{ const s=localStorage.getItem("backend_paper_mode"); return s===null?true:s==="true"; }catch{ return true; }
   }); // 後端24h自動交易模式：true=模擬下單(用真實股價算損益,不花真錢)，false=真實下單
   useEffect(()=>{ try{ localStorage.setItem("backend_paper_mode",String(backendPaperMode)); }catch{} },[backendPaperMode]);
-  const riskGuardR = useRef({pauseUntil:0,consecLoss:0,dailyLoss:0,dailyProfit:0}); // "virtual" | "real"  虛擬盤/真實盤切換
   const [realPos,   setRealPos]   = useState([]); // 永豐真實持倉（連線後從後端取得）
   const [realBases, setRealBases] = useState({}); // {sym: price} 使用者新增股票的真實起始報價
   const [realNames, setRealNames] = useState(()=>{ try{ return JSON.parse(localStorage.getItem("real_names")||"{}"); }catch{ return {}; } }); // {sym: 真實中文名稱}，來自永豐合約資料，補足內建清單沒有的股票
@@ -770,11 +768,11 @@ export default function TradeAIPro() {
       featureImport:[],prediction:{},lastTrained:null};
   });
   const liveR = useRef({}), posR = useRef([]), learnR = useRef(learn), chartR = useRef({});
-  const sigsR  = useRef({}), autoOnR = useRef(false), riskR = useRef("low");
+  const sigsR  = useRef({}), riskR = useRef("low");
   const wlR = useRef([]); // 自選股清單的即時參照，讓信號計算迴圈能拿到最新清單（不再侷限於內建模擬股票）
   const tradeModeR = useRef("virtual");
-  const autoCapPctR = useRef(100); // ref 讓 autoTrade 能即時讀到最新的 tradeMode
-  const brokerR    = useRef({status:"disconnected"}); // ref 讓 autoTrade 能即時讀到 broker 連線狀態
+  const autoCapPctR = useRef(100); // ref 讓後端啟動函式能即時讀到最新的資金百分比設定
+  const brokerR    = useRef({status:"disconnected"}); // ref 讓各非同步流程能即時讀到 broker 連線狀態
   const realSymR   = useRef(new Set()); // 已確認為「真實報價來源」的股票代號集合，這些不再用亂數模擬跳動
   useEffect(()=>{liveR.current=live;},[live]);
   useEffect(()=>{tradeModeR.current=tradeMode;},[tradeMode]);
@@ -784,7 +782,6 @@ export default function TradeAIPro() {
   useEffect(()=>{learnR.current=learn;},[learn]);
   useEffect(()=>{chartR.current=charts;},[charts]);
   useEffect(()=>{sigsR.current=sigs;},[sigs]);
-  useEffect(()=>{autoOnR.current=autoOn;},[autoOn]);
   useEffect(()=>{riskR.current=risk;},[risk]);
   useEffect(()=>{wlR.current=wl;},[wl]);
   useEffect(()=>{ try{ localStorage.setItem("wl",JSON.stringify(wl)); }catch{} },[wl]);
@@ -799,7 +796,6 @@ export default function TradeAIPro() {
       return()=>clearTimeout(t);
     }
   },[learn]);
-  useEffect(()=>{riskGuardR.current=riskGuard;},[riskGuard]);
   // 後端自動交易狀態輪詢（連線後每30秒同步）
   useEffect(()=>{
     if(broker.status!=="connected") return;
@@ -894,7 +890,6 @@ export default function TradeAIPro() {
     setPf(pv=>({...pv,total:+(pv.cash+posVal).toFixed(2),dayPnL:+dayPnL.toFixed(2)}));
     // 每日凌晨重置風控護盾
     const hr=new Date().getHours();
-    if(hr===0) setRiskGuard(rg=>rg.dailyLoss!==0||rg.dailyProfit!==0?{pauseUntil:0,consecLoss:0,dailyLoss:0,dailyProfit:0}:rg);
   },[pos,hist]);
 
   // ── 三大法人買賣超（連線後抓一次，真實資料每天約15:30後由證交所公布，不需要高頻輪詢）──
@@ -1085,7 +1080,7 @@ export default function TradeAIPro() {
   useEffect(()=>{
     const iv=setInterval(()=>{
       const curSigs=sigsR.current;
-      const curAutoOn=autoOnR.current;
+      const curAutoOn=backendAutoR.current; // 改用後端自動交易狀態（本機自動當沖已移除，後端是現在唯一的自動交易系統）
       setLearn(lrn=>{
         if(lrn.conf>=95) return lrn;
         const allSigs=Object.values(curSigs);
@@ -1175,94 +1170,6 @@ export default function TradeAIPro() {
   },[]);
 
   // ── Auto trading engine (30s) ────────────────────────────────
-  const autoTrade = useCallback(()=>{
-    const cfg=RISK_CFG[risk];
-    // ── 風控護盾 ────────────────────────────────────────────────
-    const rg=riskGuardR.current, now=Date.now();
-    if(rg.pauseUntil>now) return; // 連虧冷靜期
-    const dailyLossPct=Math.abs(Math.min(0,rg.dailyLoss))/startingCapitalR.current*100;
-    if(dailyLossPct>=3){
-      setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym:"系統",act:"[停損]日損停損",price:0,conf:0,note:`今日虧損${dailyLossPct.toFixed(1)}%，已停止自動交易`},...l.slice(0,49)]);
-      return;
-    }
-    if(rg.dailyProfit/startingCapitalR.current*100>=8){
-      setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym:"系統",act:"[鎖定]獲利",price:0,conf:0,note:`今日獲利${(rg.dailyProfit/startingCapitalR.current*100).toFixed(1)}%，已停止`},...l.slice(0,49)]);
-      return;
-    }
-    const cLive=liveR.current, cPos=posR.current, cChart=chartR.current, cLearn=learnR.current;
-    wl.forEach(sym=>{
-      const sig=calcSignal(sym,cChart,cLive,cLearn.weights,cLearn.bonus);
-      const lp=cLive[sym]; if(!lp) return;
-      const existing=cPos.find(p=>p.sym===sym);
-      // Exit check（含短炒持倉時間上限：避免AI抱單變成波段交易）
-      if(existing){
-        const pp=existing.pct||0;
-        const heldMin=(Date.now()-(existing.openTs||Date.now()))/60000;
-        const timeUp=heldMin>=cfg.maxHoldMin&&pp>-0.1; // 超時且未明顯虧損就先了結，鎖定當沖節奏
-        if(pp<=-cfg.sl||pp>=cfg.tp||timeUp||(existing.dir==="L"&&sig.action==="sell")||(existing.dir==="S"&&sig.action==="buy")){
-          const isProfit=pp>=cfg.tp, isLoss=pp<=-cfg.sl;
-          closePosById(existing.id,true);
-          setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:"出場",price:lp.price,conf:sig.conf,note:isProfit?"止盈":isLoss?"停損":timeUp?"持倉超時了結":"信號反轉"},...l.slice(0,49)]);
-          // 風控護盾：連虧計數（用實際股數計算金額，不能直接用「張」數，否則風控門檻形同虛設）
-          const sharesEx=existing.shares??(isTWStock(sym)?existing.qty*1000:existing.qty);
-          if(isLoss){
-            setRiskGuard(rg=>{
-              const nc=rg.consecLoss+1;
-              return{...rg,consecLoss:nc,dailyLoss:rg.dailyLoss+existing.entry*sharesEx*cfg.sl/100,
-                pauseUntil:nc>=3?Date.now()+15*60*1000:rg.pauseUntil};
-            });
-          } else {
-            setRiskGuard(rg=>({...rg,consecLoss:0,dailyProfit:rg.dailyProfit+existing.entry*sharesEx*Math.abs(pp)/100}));
-          }
-        }
-        return;
-      }
-      if(sig.conf<cfg.minConf||sig.action==="hold") return;
-      if(sig.action==="sell") return; // 當沖只做多單（低買高賣），不自動做空，避免漲停鎖死違約交割風險
-      if(sig.badTime) return; // 開盤前15分 / 午休不交易
-      if(cPos.length>=cfg.maxPos) return;
-      // 板塊分散：同板塊已有持倉則跳過
-      const thisSector=STOCKS[sym]?.sector;
-      if(thisSector&&cPos.some(p=>STOCKS[p.sym]?.sector===thisSector)) return;
-      const price=N(lp.price); if(!price) return;
-      // 台灣整張規則：整股代號每張=1000股，最少1張；其他市場以資金%計算
-      const availCap = pf.cash * (autoCapPctR.current/100);
-      const qty = isTWStock(sym)
-        ? Math.max(1, Math.floor(availCap * cfg.alloc / (price * 1000))) // 張
-        : Math.max(1, Math.floor(availCap * cfg.alloc / price));
-      const dir=sig.action==="buy"?"L":"S";
-      const sl=+(price*(dir==="L"?1-cfg.sl/100:1+cfg.sl/100)).toFixed(2);
-      const tp=+(price*(dir==="L"?1+cfg.tp/100:1-cfg.tp/100)).toFixed(2);
-      const id=Date.now()+Math.random();
-      // 重要：qty是「張」(TW股) 或「股」(非TW)的顯示單位；shares永遠是實際股數，用於所有金額計算
-      const shares1=isTWStock(sym)?qty*1000:qty;
-      const newPos={id,sym,name:getStockName(sym),dir,qty,shares:shares1,entry:price,cur:price,pnl:0,pct:0,sl,tp,openTime:new Date().toLocaleTimeString("zh-TW"),openTs:Date.now(),auto:true,rl:risk,sigDetails:sig.details};
-      if(tradeModeR.current==="real"){
-        // 真實盤：送出真實委託，同時更新模擬持倉讓畫面即時顯示
-        if(brokerR.current?.status!=="connected"){
-          setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:"未連接",price,conf:sig.conf,note:"真實下單需先連接永豐"},...l.slice(0,49)]);
-          return;
-        }
-        fetch("/api/sinopac?path=order",{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({symbol:sym,direction:dir==="L"?"buy":"sell",quantity:qty,price:price,order_type:"市價"})
-        }).catch(e=>console.error("Real auto order failed:",e));
-        setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:dir==="L"?"AI真實買▲":"AI真實賣▼",price,conf:sig.conf,rsi:sig.rsi},...l.slice(0,49)]);
-      } else {
-        // 虛擬盤：僅更新畫面狀態
-        setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym,act:dir==="L"?"做多▲":"做空▼",price,conf:sig.conf,rsi:sig.rsi},...l.slice(0,49)]);
-      }
-      setPos(p=>[...p,newPos]);
-      setPf(pv=>({...pv,cash:+(pv.cash-(dir==="L"?price*qty:0)).toFixed(2)}));
-    });
-  },[risk,wl,pf.cash,closePosById]);
-
-  useEffect(()=>{
-    if(!autoOn) return;
-    autoTrade(); // immediate
-    const iv=setInterval(autoTrade,30000);
-    return()=>clearInterval(iv);
-  },[autoOn,autoTrade]);
-
   // ── Manual trade ─────────────────────────────────────────────
   // 真實下單的實際執行（從確認彈窗呼叫，不會在使用者按下"做多/做空"的瞬間就直接送出）
   const executeRealOrder = useCallback(async(sym,dir,qty,price)=>{
@@ -1408,7 +1315,7 @@ export default function TradeAIPro() {
     setBroker(b=>({...b,status:"disconnected",account:null,balance:null,error:null}));
     // 安全機制：中斷連接時若仍在真實盤模式，強制退回虛擬盤，避免畫面顯示「真實盤」卻其實沒有連接的混淆狀態
     setTradeMode(m=>{
-      if(m==="real"){ setAlog(l=>[{ts:new Date().toLocaleTimeString("zh-TW"),sym:"系統",act:"已退回虛擬盤",price:0,conf:0,note:"永豐連接已中斷，真實盤無法繼續"},...l.slice(0,49)]); return "virtual"; }
+      if(m==="real"){ alert("永豐連接已中斷，真實盤無法繼續，已退回虛擬盤"); return "virtual"; }
       return m;
     });
   },[]);
@@ -1600,16 +1507,16 @@ export default function TradeAIPro() {
         <Card onClick={()=>setTab("auto")} cls="p-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${autoOn?"bg-emerald-400 animate-pulse":"bg-gray-700"}`}/>
-              <span className="text-xs font-bold text-white">AI 自動當沖</span>
+              <div className={`w-2 h-2 rounded-full ${backendAuto.enabled?"bg-emerald-400 animate-pulse":"bg-gray-700"}`}/>
+              <span className="text-xs font-bold text-white">後端AI自動交易</span>
               <Chip c={`border-${risk==="low"?"emerald":risk==="mid"?"amber":"red"}-500/30 text-${risk==="low"?"emerald":risk==="mid"?"amber":"red"}-400 bg-${risk==="low"?"emerald":risk==="mid"?"amber":"red"}-500/10`}>{RISK_CFG[risk].label}</Chip>
             </div>
-            <span className={`text-[10px] font-bold ${autoOn?"text-emerald-400":"text-gray-600"}`}>{autoOn?"運行中":"已暫停"}</span>
+            <span className={`text-[10px] font-bold ${backendAuto.enabled?"text-emerald-400":"text-gray-600"}`}>{backendAuto.enabled?"運行中":"已停止"}</span>
           </div>
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div><div className="text-[9px] text-gray-600">自動交易</div><div className="text-xs font-mono font-bold text-white">{hist.filter(h=>h.auto).length}次</div></div>
-            <div><div className="text-[9px] text-gray-600">自動盈虧</div><div className={`text-xs font-mono font-bold ${CC(hist.filter(h=>h.auto).reduce((s,h)=>s+h.pnl,0))}`}>{F(hist.filter(h=>h.auto).reduce((s,h)=>s+h.pnl,0))}</div></div>
-            <div onClick={()=>setModal({type:"activeSignalsDetail"})} className="cursor-pointer"><div className="text-[9px] text-gray-600">活躍信號</div><div className="text-xs font-mono font-bold text-cyan-400 underline decoration-dotted">{buySignals.length+sellSignals.length}個</div></div>
+            <div><div className="text-[9px] text-gray-600">今日交易</div><div className="text-xs font-mono font-bold text-white">{backendAuto.status?.daily_trades||0}次</div></div>
+            <div><div className="text-[9px] text-gray-600">今日盈虧</div><div className={`text-xs font-mono font-bold ${CC(backendAuto.status?.daily_pnl)}`}>NT${F(backendAuto.status?.daily_pnl||0,0)}</div></div>
+            <div onClick={e=>{e.stopPropagation();setModal({type:"activeSignalsDetail"});}} className="cursor-pointer"><div className="text-[9px] text-gray-600">活躍信號</div><div className="text-xs font-mono font-bold text-cyan-400 underline decoration-dotted">{buySignals.length+sellSignals.length}個</div></div>
           </div>
         </Card>
 
@@ -1696,15 +1603,9 @@ export default function TradeAIPro() {
       <div className="space-y-3">
         {/* Control */}
         <Card cls="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="text-sm font-bold text-white">AI 自動當沖</div>
-              <div className="text-[9px] text-gray-600 mt-0.5">真實市場數據 × 虛擬資金測試</div>
-            </div>
-            <button onClick={()=>setAutoOn(v=>!v)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold border transition-all ${autoOn?"bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/15":"bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/15"}`}>
-              {autoOn?<><Pause className="w-4 h-4"/>暫停</>:<><Play className="w-4 h-4"/>啟動</>}
-            </button>
+          <div className="mb-4">
+            <div className="text-sm font-bold text-white">風險等級設定</div>
+            <div className="text-[9px] text-gray-600 mt-0.5">套用至下方「後端24h自動交易」，本機獨立自動當沖已移除（僅保留後端版本，更安全也更全面）</div>
           </div>
           {/* Risk selector */}
           <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">風險等級</div>
@@ -1758,6 +1659,7 @@ export default function TradeAIPro() {
             <div className="text-[9px] text-gray-600 mb-3 leading-relaxed">
               關閉瀏覽器後仍持續交易 · 台股時段 09:00-13:25 · 風險等級（{RISK_CFG[risk].label}）
               {backendPaperMode?" · 模擬模式會從40檔主要股票池找AI預估利潤最高的機會（不限自選股）":" · 真實下單僅限你的自選股清單，較保守"}
+              · 自動板塊分散（同板塊不重複持倉）· 獲利1.5%後自動移動停利鎖定部分獲利
             </div>
             {backendAuto.status?.paper_mode!=null&&backendAuto.enabled&&(
               <div className={`mb-3 text-[10px] px-3 py-2 rounded-lg border flex items-center gap-2 ${backendAuto.status.paper_mode?"bg-cyan-500/10 border-cyan-500/25 text-cyan-400":"bg-red-500/10 border-red-500/25 text-red-400"}`}>
@@ -1817,53 +1719,56 @@ export default function TradeAIPro() {
                 {backendAuto.enabled?"尚無已完成交易，AI找到機會進出場後會顯示在這裡":"後端自動交易尚未啟動"}
               </div>
             ):(
-            <div className="space-y-1.5 max-h-72 overflow-y-auto">
-              {backendAuto.status.trade_history.map((t,i)=>(
-                <div key={i} className="bg-[#0a1422] rounded-lg p-2.5">
-                  <div className="flex items-center justify-between mb-1">
+            <div className="space-y-1.5 max-h-96 overflow-y-auto">
+              {backendAuto.status.trade_history.map((t,i)=>{
+                const shares=t.shares??(t.qty*1000); // 舊紀錄沒有shares欄位時，用張數推算（1張=1000股）
+                const costBasis=t.total_cost_basis??(t.entry*shares);
+                const hasBreakdown=t.gross_pnl!=null&&t.fees!=null;
+                return(
+                <div key={i} className="bg-[#0a1422] rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-mono font-bold text-white">{t.sym}</span>
                       <span className="text-[9px] text-gray-600">{getStockName(t.sym)}</span>
                       {t.from_pool&&<span className="text-[7px] px-1 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/25">股票池</span>}
                       <span className={`text-[9px] font-bold ${t.dir==="L"?"text-emerald-400":"text-red-400"}`}>{t.dir==="L"?"做多":"做空"}</span>
                     </div>
-                    <span className={`text-xs font-mono font-bold ${N(t.pnl)>=0?"text-emerald-400":"text-red-400"}`}>{N(t.pnl)>=0?"+":""}NT${N(t.pnl).toLocaleString()}</span>
+                    <span className={`text-sm font-mono font-bold ${N(t.pnl)>=0?"text-emerald-400":"text-red-400"}`}>{N(t.pnl)>=0?"+":""}NT${N(t.pnl).toLocaleString()}</span>
                   </div>
+                  <div className="grid grid-cols-3 gap-1.5 mb-2 text-center bg-[#070f1c] rounded-lg p-2">
+                    <div>
+                      <div className="text-[8px] text-gray-600">買進股數</div>
+                      <div className="text-[10px] font-mono font-bold text-white">{shares.toLocaleString()}股</div>
+                      <div className="text-[8px] text-gray-700">（{t.qty}張）</div>
+                    </div>
+                    <div>
+                      <div className="text-[8px] text-gray-600">進場/出場（每股）</div>
+                      <div className="text-[10px] font-mono font-bold text-white">NT${t.entry}→NT${t.exit}</div>
+                    </div>
+                    <div>
+                      <div className="text-[8px] text-gray-600">總進場成本</div>
+                      <div className="text-[10px] font-mono font-bold text-cyan-400">NT${Math.round(costBasis).toLocaleString()}</div>
+                    </div>
+                  </div>
+                  {hasBreakdown&&(
+                    <div className="flex items-center justify-between text-[9px] text-gray-600 mb-1.5 px-1">
+                      <span>毛利 <span className={N(t.gross_pnl)>=0?"text-emerald-400":"text-red-400"}>{N(t.gross_pnl)>=0?"+":""}NT${N(t.gross_pnl).toLocaleString()}</span></span>
+                      <span>－ 手續費/證交稅 <span className="text-amber-400">NT${N(t.fees).toLocaleString()}</span></span>
+                      <span>＝ 淨損益 <span className={N(t.pnl)>=0?"text-emerald-400":"text-red-400"}>{N(t.pnl)>=0?"+":""}NT${N(t.pnl).toLocaleString()}</span></span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-[9px] text-gray-600">
-                    <span>{t.qty}張 · 進場NT${t.entry} → 出場NT${t.exit}</span>
+                    <span>報酬率</span>
                     <span className={N(t.pct)>=0?"text-emerald-400":"text-red-400"}>{N(t.pct)>=0?"+":""}{t.pct}%</span>
                   </div>
-                  <div className="flex items-center justify-between text-[8px] text-gray-700 mt-0.5">
+                  <div className="flex items-center justify-between text-[8px] text-gray-700 mt-1">
                     <span>{t.open_time} → {t.close_time}</span>
                     <span>{t.tag}</span>
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
             )}
-          </Card>
-        )}
-
-        {/* Auto log（本機虛擬盤訊號日誌） */}
-        {alog.length>0&&(
-          <Card cls="p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-[9px] text-gray-600 uppercase tracking-wider">自動交易日誌</div>
-              <div className="flex gap-1">
-                {riskGuard.pauseUntil>Date.now()&&<Chip c="border-amber-500/30 text-amber-400 bg-amber-500/10">冷靜期</Chip>}
-                {Math.abs(Math.min(0,riskGuard.dailyLoss))/startingCapitalR.current*100>=3&&<Chip c="border-red-500/30 text-red-400 bg-red-500/10">日損停損</Chip>}
-                {riskGuard.dailyProfit/startingCapitalR.current*100>=8&&<Chip c="border-emerald-500/30 text-emerald-400 bg-emerald-500/10">獲利鎖定</Chip>}
-              </div>
-            </div>
-            {alog.slice(0,6).map((l,i)=>(
-              <div key={i} className="flex items-center gap-2 py-1 border-b border-[#0d2137] last:border-0 text-[10px]">
-                <span className="text-gray-700 font-mono w-10 flex-shrink-0">{l.ts?.slice(-8,-3)}</span>
-                <span className="font-bold text-white">{l.sym}</span>
-                <span className={l.act.includes("多")?"text-emerald-400":l.act.includes("空")?"text-red-400":"text-amber-400"}>{l.act}</span>
-                <span className="text-gray-600">NT${N(l.price).toFixed(2)}</span>
-                <span className="text-gray-700 ml-auto">{N(l.conf).toFixed(0)}%</span>
-              </div>
-            ))}
           </Card>
         )}
 
@@ -2981,7 +2886,7 @@ export default function TradeAIPro() {
             </div>
             <div className="flex gap-3">
               <button onClick={()=>setModal(null)} className="flex-1 py-3 bg-[#070f1c] border border-[#0d2137] text-gray-400 rounded-xl text-sm font-bold">取消</button>
-              <button onClick={()=>{setHist([]);setPos([]);setPf({cash:startingCapitalR.current,total:startingCapitalR.current,dayPnL:0,cumPnL:0});setAlog([]);setLearn({phase:0,trades:0,wins:0,pnl:0,conf:30,streak:0,maxStreak:0,bonus:0,history:[],weights:{rsi:0.25,macd:0.35,ma:0.25,vol:0.15}});setModal(null);}} className="flex-1 py-3 bg-red-500/10 border border-red-500/25 text-red-400 rounded-xl text-sm font-bold">確認重置</button>
+              <button onClick={()=>{setHist([]);setPos([]);setPf({cash:startingCapitalR.current,total:startingCapitalR.current,dayPnL:0,cumPnL:0});setLearn({phase:0,trades:0,wins:0,pnl:0,conf:30,streak:0,maxStreak:0,bonus:0,history:[],weights:{rsi:0.25,macd:0.35,ma:0.25,vol:0.15}});setModal(null);}} className="flex-1 py-3 bg-red-500/10 border border-red-500/25 text-red-400 rounded-xl text-sm font-bold">確認重置</button>
             </div>
           </MW>
         );
@@ -3007,9 +2912,9 @@ export default function TradeAIPro() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className={`flex items-center gap-1.5 text-[9px] px-2.5 py-1 rounded-full border font-bold ${autoOn?"bg-emerald-500/10 border-emerald-500/30 text-emerald-400":"bg-[#0d2137] border-[#1a3050] text-gray-600"}`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${autoOn?"bg-emerald-400 animate-pulse":"bg-gray-700"}`}/>
-              {autoOn?RISK_CFG[risk].label+"運行":"待機"}
+            <div className={`flex items-center gap-1.5 text-[9px] px-2.5 py-1 rounded-full border font-bold ${backendAuto.enabled?"bg-emerald-500/10 border-emerald-500/30 text-emerald-400":"bg-[#0d2137] border-[#1a3050] text-gray-600"}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${backendAuto.enabled?"bg-emerald-400 animate-pulse":"bg-gray-700"}`}/>
+              {backendAuto.enabled?RISK_CFG[risk].label+"運行":"待機"}
             </div>
             <button onClick={()=>{
               if(tradeMode==="virtual"){
