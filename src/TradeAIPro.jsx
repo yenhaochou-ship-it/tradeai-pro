@@ -316,8 +316,8 @@ function backtest(cd, minConf=65) {
     const mockLive={__bt:{price:cd[i].price,chg:0,pct:0}};
     const mockChart={__bt:slice};
     const sig=calcSignal("__bt",mockChart,mockLive,{rsi:0.20,macd:0.25,ma:0.20,vol:0.15,vwap:0.12,bb:0.08},0);
-    if(!inPos&&sig.action!=="hold"&&sig.conf>=minConf){
-      inPos={dir:sig.action==="buy"?"L":"S",entry:cd[i].price,idx:i};
+    if(!inPos&&sig.action==="buy"&&sig.conf>=minConf){
+      inPos={dir:"L",entry:cd[i].price,idx:i};
     } else if(inPos&&i>inPos.idx+1){
       const pnlPct=inPos.dir==="L"?(cd[i].price-inPos.entry)/inPos.entry*100:(inPos.entry-cd[i].price)/inPos.entry*100;
       if(pnlPct<=-2.5||pnlPct>=5.0||(sig.action===( inPos.dir==="L"?"sell":"buy")&&sig.conf>=65)){
@@ -1218,6 +1218,7 @@ export default function TradeAIPro() {
         return;
       }
       if(sig.conf<cfg.minConf||sig.action==="hold") return;
+      if(sig.action==="sell") return; // 當沖只做多單（低買高賣），不自動做空，避免漲停鎖死違約交割風險
       if(sig.badTime) return; // 開盤前15分 / 午休不交易
       if(cPos.length>=cfg.maxPos) return;
       // 板塊分散：同板塊已有持倉則跳過
@@ -1746,7 +1747,8 @@ export default function TradeAIPro() {
               </div>
             )}
             <div className="text-[9px] text-gray-600 mb-3 leading-relaxed">
-              關閉瀏覽器後仍持續交易 · 台股時段 09:00-13:25 · 自動使用目前風險等級（{RISK_CFG[risk].label}）與自選股清單
+              關閉瀏覽器後仍持續交易 · 台股時段 09:00-13:25 · 風險等級（{RISK_CFG[risk].label}）
+              {backendPaperMode?" · 模擬模式會從40檔主要股票池找AI預估利潤最高的機會（不限自選股）":" · 真實下單僅限你的自選股清單，較保守"}
             </div>
             {backendAuto.status?.paper_mode!=null&&backendAuto.enabled&&(
               <div className={`mb-3 text-[10px] px-3 py-2 rounded-lg border flex items-center gap-2 ${backendAuto.status.paper_mode?"bg-cyan-500/10 border-cyan-500/25 text-cyan-400":"bg-red-500/10 border-red-500/25 text-red-400"}`}>
@@ -1788,6 +1790,36 @@ export default function TradeAIPro() {
                 ))}
               </div>
             )}
+          </Card>
+        )}
+
+        {/* 後端24h自動交易的實際交易紀錄（跟上面的系統訊息日誌分開，這裡只列真正成交的進出場） */}
+        {broker.status==="connected"&&backendAuto.status?.trade_history?.length>0&&(
+          <Card cls="p-4">
+            <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">後端交易紀錄（今日，共{backendAuto.status.trade_history.length}筆）</div>
+            <div className="space-y-1.5 max-h-72 overflow-y-auto">
+              {backendAuto.status.trade_history.map((t,i)=>(
+                <div key={i} className="bg-[#0a1422] rounded-lg p-2.5">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-mono font-bold text-white">{t.sym}</span>
+                      <span className="text-[9px] text-gray-600">{getStockName(t.sym)}</span>
+                      {t.from_pool&&<span className="text-[7px] px-1 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/25">股票池</span>}
+                      <span className={`text-[9px] font-bold ${t.dir==="L"?"text-emerald-400":"text-red-400"}`}>{t.dir==="L"?"做多":"做空"}</span>
+                    </div>
+                    <span className={`text-xs font-mono font-bold ${N(t.pnl)>=0?"text-emerald-400":"text-red-400"}`}>{N(t.pnl)>=0?"+":""}NT${N(t.pnl).toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[9px] text-gray-600">
+                    <span>{t.qty}張 · 進場NT${t.entry} → 出場NT${t.exit}</span>
+                    <span className={N(t.pct)>=0?"text-emerald-400":"text-red-400"}>{N(t.pct)>=0?"+":""}{t.pct}%</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] text-gray-700 mt-0.5">
+                    <span>{t.open_time} → {t.close_time}</span>
+                    <span>{t.tag}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </Card>
         )}
 
@@ -2776,6 +2808,7 @@ export default function TradeAIPro() {
               <div className="text-[11px] text-gray-400 leading-relaxed text-left bg-red-500/10 border border-red-500/20 rounded-xl p-3 space-y-1.5">
                 <div>· 手動下單會先顯示確認視窗（張數/股數+估計金額），確認後才送出</div>
                 <div>· AI 自動交易將每30秒自動用真實資金下單，過程中不會再次確認</div>
+                <div>· AI 自動交易只做多單（低買高賣），不會自動做空</div>
                 <div>· 停損/止盈設定由你在自動分頁選擇的風險等級決定</div>
                 <div>· 台股下單單位為「張」（1張=1000股），請留意數量單位</div>
               </div>
