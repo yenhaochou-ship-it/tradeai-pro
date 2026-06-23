@@ -897,7 +897,13 @@ export default function TradeAIPro() {
 
   // ── Portfolio sync ───────────────────────────────────────────
   useEffect(()=>{
-    const posVal=pos.reduce((s,p)=>s+N(p.cur)*(p.shares??(isTWStock(p.sym)?p.qty*1000:p.qty)),0); // 修正：用實際股數計算持倉市值
+    // 修正⑧：做空的「持倉市值」是負債(欠的股票要用現價買回)，不是資產，要用減的；
+    // 開倉時cash已經正確加上賣出借券所得(entry*shares，見placeTrade的修正⑦)，
+    // 這裡如果還用+current_price*shares算市值，等於同一筆錢被算成資產兩次，總資產會虛增。
+    const posVal=pos.reduce((s,p)=>{
+      const shares=p.shares??(isTWStock(p.sym)?p.qty*1000:p.qty);
+      return s+(p.dir==="L"?1:-1)*N(p.cur)*shares;
+    },0);
     const dayPnL=pos.reduce((s,p)=>s+N(p.pnl),0)+hist.reduce((s,t)=>s+N(t.pnl),0);
     setPf(pv=>({...pv,total:+(pv.cash+posVal).toFixed(2),dayPnL:+dayPnL.toFixed(2)}));
     // 每日凌晨重置風控護盾
@@ -1147,7 +1153,7 @@ export default function TradeAIPro() {
     const rec={id,sym:p.sym,name:p.name,dir:p.dir,qty:p.qty,entry:p.entry,exit:exitP,pnl:+pnl.toFixed(2),grossPnl:+grossPnl.toFixed(2),fee:+cost.toFixed(0),pct:+(pnl/(p.entry*shares)*100).toFixed(2),open:p.openTime,close:new Date().toLocaleTimeString("zh-TW"),win,auto:p.auto,rl:p.rl};
     setHist(h=>[...h,rec]);
     setPos(x=>x.filter(y=>y.id!==id));
-    setPf(pv=>({...pv,cash:+(pv.cash+exitP*shares-cost).toFixed(2),cumPnL:+(pv.cumPnL+pnl).toFixed(2)}));
+    setPf(pv=>({...pv,cash:+(pv.cash+(p.dir==="L"?exitP*shares-cost:-exitP*shares-cost)).toFixed(2),cumPnL:+(pv.cumPnL+pnl).toFixed(2)}));
     // Update learning
     setLearn(lrn=>{
       const newT=lrn.trades+1, newW=lrn.wins+(win?1:0), wr=newW/newT;
@@ -1228,7 +1234,9 @@ export default function TradeAIPro() {
     setPos(x=>[...x,p]);
     // 修正⑤：原本扣款用 price*qty（台股qty是「張」），但張=1000股，少扣了1000倍，
     // 導致開倉後現金幾乎沒少，但持倉市值卻是用真實股數算的全額，總資產瞬間暴增超過1000倍。
-    setPf(pv=>({...pv,cash:+(pv.cash-(dir==="L"?price*shares2:0)).toFixed(2)}));
+    // 修正⑦：做空開倉原本完全不動現金，但做空的真實現金流是「賣出借來的股票、收到價款」，
+    // 現金應該增加entry*shares，跟平倉時的扣款公式(見closePosById)要對稱，否則净損益會跟現金變化對不上。
+    setPf(pv=>({...pv,cash:+(pv.cash+(dir==="L"?-price*shares2:price*shares2)).toFixed(2)}));
     setModal({type:"ok",data:p});
   },[]);
 
@@ -1479,7 +1487,10 @@ export default function TradeAIPro() {
   // 修正：只統計「自選股清單裡」的訊號，避免把已移除的內建模擬股票也算進活躍信號數
   const buySignals = Object.entries(sigs).filter(([sym,v])=>wl.includes(sym)&&v.action==="buy");
   const sellSignals = Object.entries(sigs).filter(([sym,v])=>wl.includes(sym)&&v.action==="sell");
-  const posValue = pos.reduce((s,p)=>s+N(p.cur)*(p.shares??(isTWStock(p.sym)?p.qty*1000:p.qty)),0); // 修正：用實際股數計算持倉市值
+  const posValue = pos.reduce((s,p)=>{
+    const shares=p.shares??(isTWStock(p.sym)?p.qty*1000:p.qty);
+    return s+(p.dir==="L"?1:-1)*N(p.cur)*shares;
+  },0); // 修正：用實際股數計算持倉市值，且做空算負債(減)不是資產(加)，跟上面Portfolio sync一致
 
   // 共用元件 Card/Row/Chip 已提升至檔案頂層（穩定身分，避免重複渲染時被重建）
 
