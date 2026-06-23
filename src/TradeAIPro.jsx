@@ -51,6 +51,14 @@ function calcRoundTripCost(entryPrice,exitPrice,qty){
 const MIN_PROFITABLE_MOVE_PCT=(FEE_RATE*FEE_DISCOUNT*2+DAYTRADE_TAX)*100; // 約0.32%，當沖至少要漲跌這麼多才打平成本
 // 真實下單前的最低模擬驗證門檻（需與後端 main.py 的 PAPER_VALIDATION_MIN_* 保持一致，純粹是顯示用）
 const PAPER_VALIDATION_MIN_TRADES=20, PAPER_VALIDATION_MIN_DAYS=5;
+// 對應後端 advanced_score 的 Market Regime 分類，純顯示用的中文標籤
+const REGIME_LABEL={trending_bull:"多頭趨勢",trending_bear:"空頭趨勢",range:"區間盤整",volatile:"高波動",panic:"恐慌",unknown:"資料不足"};
+const GRADE_STYLE={
+  S:"bg-amber-500/15 text-amber-400 border-amber-500/25",
+  A:"bg-cyan-500/15 text-cyan-400 border-cyan-500/25",
+  B:"bg-blue-500/15 text-blue-400 border-blue-500/25",
+  C:"bg-gray-500/15 text-gray-400 border-gray-500/25",
+};
 
 const RISK_CFG = {
   // maxHoldMin：單筆持倉最長持有分鐘數，超時且未虧損就先了結，避免AI把當沖抱成波段單
@@ -1733,6 +1741,32 @@ export default function TradeAIPro() {
           </Card>
         )}
 
+        {/* 後端目前持倉明細（之前只有數字「N筆」沒有清單，現在補上） */}
+        {broker.status==="connected"&&backendAuto.status?.positions?.length>0&&(
+          <Card cls="p-4">
+            <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">
+              後端目前持倉（{backendAuto.status.positions.length}筆）
+            </div>
+            <div className="space-y-1.5">
+              {backendAuto.status.positions.map((p,i)=>(
+                <div key={i} className="bg-[#0a1422] rounded-lg p-2.5 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-mono font-bold text-white">{p.sym}</span>
+                    <span className="text-[9px] text-gray-600">{getStockName(p.sym)}</span>
+                    {p.grade&&p.grade!=="-"&&<span className={`text-[7px] px-1 py-0.5 rounded font-bold border ${GRADE_STYLE[p.grade]||GRADE_STYLE.C}`}>{p.grade}級</span>}
+                    <span className={`text-[9px] font-bold ${p.dir==="L"?"text-emerald-400":"text-red-400"}`}>{p.dir==="L"?"做多":"做空"}</span>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] font-mono text-white">{p.qty}張@NT${N(p.entry).toFixed(2)}</div>
+                    <div className="text-[8px] text-gray-600">{p.regime&&p.regime!=="-"?REGIME_LABEL[p.regime]||p.regime:""} · {p.open_time}進場</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="text-[8px] text-gray-700 mt-2">即時損益請看上方「持倉」統計數字；這裡只顯示進場明細跟AI評分等級</div>
+          </Card>
+        )}
+
         {/* 後端24h自動交易的實際交易紀錄（跟上面的系統訊息日誌分開，這裡只列真正成交的進出場） */}
         {broker.status==="connected"&&(
           <Card cls="p-4">
@@ -1756,6 +1790,7 @@ export default function TradeAIPro() {
                       <span className="text-xs font-mono font-bold text-white">{t.sym}</span>
                       <span className="text-[9px] text-gray-600">{getStockName(t.sym)}</span>
                       {t.from_pool&&<span className="text-[7px] px-1 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/25">股票池</span>}
+                      {t.grade&&t.grade!=="-"&&<span className={`text-[7px] px-1 py-0.5 rounded font-bold border ${GRADE_STYLE[t.grade]||GRADE_STYLE.C}`}>{t.grade}級</span>}
                       <span className={`text-[9px] font-bold ${t.dir==="L"?"text-emerald-400":"text-red-400"}`}>{t.dir==="L"?"做多":"做空"}</span>
                     </div>
                     <span className={`text-sm font-mono font-bold ${N(t.pnl)>=0?"text-emerald-400":"text-red-400"}`}>{N(t.pnl)>=0?"+":""}NT${N(t.pnl).toLocaleString()}</span>
@@ -1788,7 +1823,7 @@ export default function TradeAIPro() {
                   </div>
                   <div className="flex items-center justify-between text-[8px] text-gray-700 mt-1">
                     <span>{t.open_time} → {t.close_time}</span>
-                    <span>{t.tag}</span>
+                    <span>{t.regime&&t.regime!=="-"?`${REGIME_LABEL[t.regime]||t.regime} · `:""}{t.tag}</span>
                   </div>
                 </div>
               );})}
