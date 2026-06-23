@@ -49,12 +49,16 @@ function calcRoundTripCost(entryPrice,exitPrice,qty){
   return {buyFee,sellFee,tax,totalCost:buyFee+sellFee+tax};
 }
 const MIN_PROFITABLE_MOVE_PCT=(FEE_RATE*FEE_DISCOUNT*2+DAYTRADE_TAX)*100; // 約0.32%，當沖至少要漲跌這麼多才打平成本
+// 真實下單前的最低模擬驗證門檻（需與後端 main.py 的 PAPER_VALIDATION_MIN_* 保持一致，純粹是顯示用）
+const PAPER_VALIDATION_MIN_TRADES=20, PAPER_VALIDATION_MIN_DAYS=5;
 
 const RISK_CFG = {
   // maxHoldMin：單筆持倉最長持有分鐘數，超時且未虧損就先了結，避免AI把當沖抱成波段單
-  low:  { label:"低風險", c:"text-emerald-400", bg:"bg-emerald-500/10 border-emerald-500/25", minConf:75, alloc:0.08, sl:1.5, tp:3.0, maxPos:2, maxHoldMin:25, sigW:{rsi:0.35,macd:0.30,ma:0.25,vol:0.10} },
-  mid:  { label:"中風險", c:"text-amber-400",   bg:"bg-amber-500/10 border-amber-500/25",   minConf:63, alloc:0.22, sl:2.5, tp:5.5, maxPos:4, maxHoldMin:40, sigW:{rsi:0.25,macd:0.35,ma:0.25,vol:0.15} },
-  high: { label:"高風險", c:"text-red-400",     bg:"bg-red-500/10 border-red-500/25",       minConf:50, alloc:0.38, sl:4.0, tp:10.0,maxPos:6, maxHoldMin:60, sigW:{rsi:0.20,macd:0.25,ma:0.30,vol:0.25} },
+  // ↓↓↓ 已與後端 main.py 的 RISK_CFG 同步一致（minConf/alloc/sl/tp/maxPos/maxHoldMin），
+  //      避免面板顯示的設定跟後端實際執行的交易參數不一樣，造成誤判。
+  low:  { label:"低風險", c:"text-emerald-400", bg:"bg-emerald-500/10 border-emerald-500/25", minConf:72, alloc:0.05, sl:2.0, tp:4.0, maxPos:3, maxHoldMin:25, sigW:{rsi:0.35,macd:0.30,ma:0.25,vol:0.10} },
+  mid:  { label:"中風險", c:"text-amber-400",   bg:"bg-amber-500/10 border-amber-500/25",   minConf:68, alloc:0.10, sl:3.0, tp:6.0, maxPos:5, maxHoldMin:40, sigW:{rsi:0.25,macd:0.35,ma:0.25,vol:0.15} },
+  high: { label:"高風險", c:"text-red-400",     bg:"bg-red-500/10 border-red-500/25",       minConf:65, alloc:0.20, sl:5.0, tp:10.0,maxPos:8, maxHoldMin:60, sigW:{rsi:0.20,macd:0.25,ma:0.30,vol:0.25} },
 };
 
 const TABS = [
@@ -701,7 +705,7 @@ export default function TradeAIPro() {
   const [selSym,   setSelSym]   = useState("NVDA");
   const [wl, setWl] = useState(()=>{
     try{ const s=JSON.parse(localStorage.getItem("wl")||"null"); if(Array.isArray(s)&&s.length) return s; }catch{}
-    return ["2330","0050","2317","2454","2882"]; // 預設改為台股（永豐可查真實報價、可實際當沖交易）
+    return ["2849","2836","2834","0050","2882"]; // 預設改為資金規模買得起的台股低價股（搭配高風險設定才買得動，詳見auto面板提示）
   });
   const [charts,   setCharts]   = useState({});
   const [sparks,   setSparks]   = useState({});
@@ -1214,7 +1218,9 @@ export default function TradeAIPro() {
     const shares2=isTWStock(sym)?qty*1000:qty;
     const p={id,sym,name:getStockName(sym),dir,qty,shares:shares2,entry:price,cur:price,pnl:0,pct:0,sl,tp,openTime:new Date().toLocaleTimeString("zh-TW"),openTs:Date.now(),auto:false,rl:"manual"};
     setPos(x=>[...x,p]);
-    setPf(pv=>({...pv,cash:+(pv.cash-(dir==="L"?price*qty:0)).toFixed(2)}));
+    // 修正⑤：原本扣款用 price*qty（台股qty是「張」），但張=1000股，少扣了1000倍，
+    // 導致開倉後現金幾乎沒少，但持倉市值卻是用真實股數算的全額，總資產瞬間暴增超過1000倍。
+    setPf(pv=>({...pv,cash:+(pv.cash-(dir==="L"?price*shares2:0)).toFixed(2)}));
     setModal({type:"ok",data:p});
   },[]);
 
@@ -1321,18 +1327,26 @@ export default function TradeAIPro() {
   },[]);
 
   // ── 後端24h自動交易控制 ────────────────────────────────────────
-  const startBackendAuto = useCallback(async()=>{
+  const startBackendAuto = useCallback(async(forceReal=false)=>{
     if(broker.status!=="connected"){alert("請先連接永豐帳戶");return;}
     setBackendAuto(b=>({...b,loading:true}));
     try{
       const r=await fetch("/api/sinopac?path=auto/start",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({risk,cap_pct:autoCapPct,watchlist:wl,paper_mode:backendPaperMode})});
+        body:JSON.stringify({risk,cap_pct:autoCapPct,watchlist:wl,paper_mode:backendPaperMode,force_real:forceReal})});
       const d=await r.json();
       if(r.ok){
         setBackendAuto(b=>({...b,enabled:true,loading:false,status:d.state}));
         try{ localStorage.setItem("backend_auto_should_run","true"); }catch{} // 記住意圖：後端重啟/重新部署後可自動恢復
+      }else{
+        setBackendAuto(b=>({...b,loading:false}));
+        // 修正⑥：真實下單驗證門檻被擋下時，detail是結構化物件({message,progress,hint})，
+        // 用專屬modal顯示進度+提供「我了解風險、強制啟動」選項，而不是丟一個語焉不詳的字串alert
+        if(d.detail&&typeof d.detail==="object"&&d.detail.progress){
+          setModal({type:"realGateBlocked",data:d.detail});
+        }else{
+          throw new Error((typeof d.detail==="string"&&d.detail)||"啟動失敗");
+        }
       }
-      else throw new Error(d.detail||"啟動失敗");
     }catch(e){
       alert("後端自動交易啟動失敗："+e.message);
       setBackendAuto(b=>({...b,loading:false}));
@@ -1679,8 +1693,19 @@ export default function TradeAIPro() {
                 </button>
               </div>
             )}
+            {!backendAuto.enabled&&!backendPaperMode&&backendAuto.status?.paper_validation&&(()=>{
+              const pv=backendAuto.status.paper_validation;
+              const trades=pv.trade_count||0, days=(pv.trading_days||[]).length;
+              const ready=trades>=PAPER_VALIDATION_MIN_TRADES&&days>=PAPER_VALIDATION_MIN_DAYS;
+              return(
+                <div className={`mb-3 text-[10px] px-3 py-2 rounded-lg border ${ready?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":"bg-amber-500/10 border-amber-500/25 text-amber-400"}`}>
+                  模擬驗證進度：{trades}/{PAPER_VALIDATION_MIN_TRADES}筆 · {days}/{PAPER_VALIDATION_MIN_DAYS}天
+                  {ready?" ✓ 已達門檻，可切換真實下單":" — 未達門檻前啟動會被擋下（可強制跳過，但不建議）"}
+                </div>
+              );
+            })()}
             {!backendAuto.enabled?(
-              <button onClick={startBackendAuto} disabled={backendAuto.loading}
+              <button onClick={()=>startBackendAuto(false)} disabled={backendAuto.loading}
                 className="w-full py-2.5 bg-violet-500/10 border border-violet-500/30 text-violet-400 rounded-xl text-xs font-bold disabled:opacity-50 flex items-center justify-center gap-1.5">
                 {backendAuto.loading?<><RefreshCw className="w-3 h-3 animate-spin"/>啟動中...</>:`啟動後端24h自動交易（${backendPaperMode?"模擬":"真實"}）`}
               </button>
@@ -2855,6 +2880,27 @@ export default function TradeAIPro() {
               <div className="text-2xl font-mono font-bold text-cyan-400 mt-2">NT${newCapital.toLocaleString()}</div>
             </div>
             <button onClick={()=>setModal(null)} className="w-full py-3 bg-[#070f1c] border border-[#0d2137] text-gray-400 rounded-xl text-sm font-bold">確認</button>
+          </MW>
+        );
+      }
+      case "realGateBlocked":{
+        const pv=modal.data?.progress||{};
+        return(
+          <MW title="真實下單已被擋下">
+            <div className="text-center py-3 mb-2">
+              <div className="flex justify-center mb-3"><ShieldCheck className="w-9 h-9 text-amber-400"/></div>
+              <div className="text-sm font-bold text-amber-400 mb-3">尚未達到真實下單的最低模擬驗證門檻</div>
+              <div className="text-[11px] text-gray-400 leading-relaxed text-left bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 space-y-1.5">
+                <div>· 模擬交易筆數：{pv.trades??0} / {pv.min_trades??PAPER_VALIDATION_MIN_TRADES} 筆</div>
+                <div>· 跨越交易日數：{pv.days??0} / {pv.min_days??PAPER_VALIDATION_MIN_DAYS} 天</div>
+                <div className="pt-1 text-gray-500">用意：剛調整完邏輯/股票池/風險參數，先讓模擬模式（真實股價、不花真錢）實際跑出足夠多筆完整結果，確認真的可行，再切換真實下單，而不是憑感覺直接賭一次。</div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <button onClick={()=>{setBackendPaperMode(true);setModal(null);}} className="w-full py-3 bg-cyan-500/15 border border-cyan-500/40 text-cyan-400 rounded-xl text-sm font-bold">繼續用模擬模式累積驗證</button>
+              <button onClick={()=>{setModal(null);startBackendAuto(true);}} className="w-full py-2.5 bg-red-500/10 border border-red-500/25 text-red-400 rounded-xl text-sm font-bold">我了解風險，強制啟動真實下單</button>
+              <button onClick={()=>setModal(null)} className="w-full py-2 bg-[#070f1c] border border-[#0d2137] text-gray-500 rounded-xl text-sm font-bold">取消</button>
+            </div>
           </MW>
         );
       }
