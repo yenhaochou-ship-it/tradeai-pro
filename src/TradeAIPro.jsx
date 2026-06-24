@@ -1732,11 +1732,20 @@ export default function TradeAIPro() {
             {!backendAuto.enabled&&!backendPaperMode&&backendAuto.status?.paper_validation&&(()=>{
               const pv=backendAuto.status.paper_validation;
               const trades=pv.trade_count||0, days=(pv.trading_days||[]).length;
+              const wins=pv.wins||0, losses=pv.losses||0;
+              const totalWin=pv.total_win_pnl||0, totalLoss=pv.total_loss_pnl||0;
+              const pf = totalLoss!==0 ? (totalWin/Math.abs(totalLoss)) : (totalWin>0?Infinity:0);
+              const winRate = (wins+losses)>0 ? (wins/(wins+losses)*100) : 0;
               const ready=trades>=PAPER_VALIDATION_MIN_TRADES&&days>=PAPER_VALIDATION_MIN_DAYS;
               return(
                 <div className={`mb-3 text-[10px] px-3 py-2 rounded-lg border ${ready?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":"bg-amber-500/10 border-amber-500/25 text-amber-400"}`}>
-                  模擬驗證進度：{trades}/{PAPER_VALIDATION_MIN_TRADES}筆 · {days}/{PAPER_VALIDATION_MIN_DAYS}天
-                  {ready?" ✓ 已達門檻，可切換真實下單":" — 未達門檻前啟動會被擋下（可強制跳過，但不建議）"}
+                  <div>模擬驗證進度：{trades}/{PAPER_VALIDATION_MIN_TRADES}筆 · {days}/{PAPER_VALIDATION_MIN_DAYS}天
+                  {ready?" ✓ 已達門檻，可切換真實下單":" — 未達門檻前啟動會被擋下（可強制跳過，但不建議）"}</div>
+                  {(wins+losses)>0&&(
+                    <div className="mt-1 text-[9px] opacity-80">
+                      累積勝率{winRate.toFixed(0)}% · 獲利因子{pf===Infinity?"∞":pf.toFixed(2)}(&gt;1.5算及格) · 平均贏{(pv.win_pct_sum&&wins?pv.win_pct_sum/wins:0).toFixed(2)}% 平均輸{(pv.loss_pct_sum&&losses?pv.loss_pct_sum/losses:0).toFixed(2)}%
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -3006,6 +3015,9 @@ export default function TradeAIPro() {
               <div className="text-[11px] text-gray-400 leading-relaxed text-left bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 space-y-1.5">
                 <div>· 模擬交易筆數：{pv.trades??0} / {pv.min_trades??PAPER_VALIDATION_MIN_TRADES} 筆</div>
                 <div>· 跨越交易日數：{pv.days??0} / {pv.min_days??PAPER_VALIDATION_MIN_DAYS} 天</div>
+                {pv.profit_factor!==undefined&&(pv.trades??0)>0&&(
+                  <div>· 目前累積：勝率{pv.win_rate??0}% · 獲利因子{pv.profit_factor===null||pv.profit_factor===Infinity?"∞":pv.profit_factor} (&gt;1.5算及格)</div>
+                )}
                 <div className="pt-1 text-gray-500">用意：剛調整完邏輯/股票池/風險參數，先讓模擬模式（真實股價、不花真錢）實際跑出足夠多筆完整結果，確認真的可行，再切換真實下單，而不是憑感覺直接賭一次。</div>
               </div>
             </div>
