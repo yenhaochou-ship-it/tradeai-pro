@@ -1779,6 +1779,21 @@ export default function TradeAIPro() {
         )}
 
         {/* 後端目前持倉明細（之前只有數字「N筆」沒有清單，現在補上） */}
+        {/* 看門狗警示：主交易迴圈心跳異常時顯示，這是真正能解決的風險(監控程式卡住)，
+            不是文件提的「沒有券商端OCO」——Shioaji官方文件證實股票沒有真正的券商端觸價單，
+            停損停利本來就是客戶端監控，這個banner就是在處理客戶端監控失效的情況 */}
+        {backendAuto.status?.watchdog?.alerted&&(
+          <div className="bg-red-500/15 border border-red-500/40 rounded-xl p-3 flex items-start gap-2 animate-pulse">
+            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5"/>
+            <div>
+              <div className="text-sm font-bold text-red-400">⚠️ 主交易迴圈心跳異常</div>
+              <div className="text-[10px] text-red-300/80 mt-0.5">
+                已經{backendAuto.status.watchdog.seconds_since_tick}秒沒有正常跳動，停損停利可能沒有在監控中。
+                {backendAuto.status?.positions?.length>0?"目前有持倉，請立刻檢查伺服器狀態，必要時手動到永豐app/網頁平倉。":"目前沒有持倉，但請檢查伺服器是否正常。"}
+              </div>
+            </div>
+          </div>
+        )}
         {broker.status==="connected"&&backendAuto.status?.positions?.length>0&&(
           <Card cls="p-4">
             <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">
