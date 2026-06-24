@@ -741,6 +741,7 @@ export default function TradeAIPro() {
   const [tradeMode, setTradeMode] = useState("virtual");
   const [autoCapPct, setAutoCapPct] = useState(()=>{ try{ return Number(localStorage.getItem("autoCapPct")||100); }catch{ return 100; } }); // AI自動交易可用資金%
   const [backendAuto, setBackendAuto] = useState({enabled:false,status:null,log:[],loading:false}); // 後端24h自動交易 // 風控護盾
+  const [tradeChartCache, setTradeChartCache] = useState({}); // {symbol: {bars, loading, error}} — 點交易紀錄查看當時K線用，跟自選股charts分開避免被wl清理邏輯誤刪
   const backendAutoR = useRef(false); // ref讓信心度計算等非同步流程能即時讀到後端自動交易是否運行中
   useEffect(()=>{backendAutoR.current=backendAuto.enabled;},[backendAuto.enabled]);
   const [backendPaperMode, setBackendPaperMode] = useState(()=>{
@@ -1343,6 +1344,22 @@ export default function TradeAIPro() {
   },[]);
 
   // ── 後端24h自動交易控制 ────────────────────────────────────────
+  // 點交易紀錄查看當時K線：抓真實歷史K棒(後端/history端點)，跟自選股的charts分開存，
+  // 因為股票池選到的標的(如2801)通常不在使用者自選股清單wl裡，charts的清理邏輯只認wl，混在一起容易被誤刪
+  const viewTradeChart = useCallback(async(t)=>{
+    setModal({type:"tradeChart",data:t});
+    if(tradeChartCache[t.sym]?.bars) return;  // 已經抓過，不重複打API
+    setTradeChartCache(prev=>({...prev,[t.sym]:{loading:true}}));
+    try{
+      const r=await fetch(`/api/sinopac?path=history/${encodeURIComponent(t.sym)}?bars=90`);
+      const d=await r.json();
+      if(!r.ok||!d.bars?.length) throw new Error(d.note||"無歷史資料");
+      setTradeChartCache(prev=>({...prev,[t.sym]:{bars:d.bars,loading:false}}));
+    }catch(e){
+      setTradeChartCache(prev=>({...prev,[t.sym]:{loading:false,error:e.message}}));
+    }
+  },[tradeChartCache]);
+
   const startBackendAuto = useCallback(async(forceReal=false)=>{
     if(broker.status!=="connected"){alert("請先連接永豐帳戶");return;}
     setBackendAuto(b=>({...b,loading:true}));
@@ -1760,17 +1777,22 @@ export default function TradeAIPro() {
             </div>
             <div className="space-y-1.5">
               {backendAuto.status.positions.map((p,i)=>(
-                <div key={i} className="bg-[#0a1422] rounded-lg p-2.5 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-mono font-bold text-white">{p.sym}</span>
-                    <span className="text-[9px] text-gray-600">{getStockName(p.sym)}</span>
-                    {p.grade&&p.grade!=="-"&&<span className={`text-[7px] px-1 py-0.5 rounded font-bold border ${GRADE_STYLE[p.grade]||GRADE_STYLE.C}`}>{p.grade}級</span>}
-                    <span className={`text-[9px] font-bold ${p.dir==="L"?"text-emerald-400":"text-red-400"}`}>{p.dir==="L"?"做多":"做空"}</span>
+                <div key={i} className="bg-[#0a1422] rounded-lg p-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-mono font-bold text-white">{p.sym}</span>
+                      <span className="text-[9px] text-gray-600">{getStockName(p.sym)}</span>
+                      {p.grade&&p.grade!=="-"&&<span className={`text-[7px] px-1 py-0.5 rounded font-bold border ${GRADE_STYLE[p.grade]||GRADE_STYLE.C}`}>{p.grade}級</span>}
+                      <span className={`text-[9px] font-bold ${p.dir==="L"?"text-emerald-400":"text-red-400"}`}>{p.dir==="L"?"做多":"做空"}</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] font-mono text-white">{p.qty}張@NT${N(p.entry).toFixed(2)}</div>
+                      <div className="text-[8px] text-gray-600">{p.regime&&p.regime!=="-"?REGIME_LABEL[p.regime]||p.regime:""} · {p.open_time}進場</div>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-[10px] font-mono text-white">{p.qty}張@NT${N(p.entry).toFixed(2)}</div>
-                    <div className="text-[8px] text-gray-600">{p.regime&&p.regime!=="-"?REGIME_LABEL[p.regime]||p.regime:""} · {p.open_time}進場</div>
-                  </div>
+                  {p.entry_reason&&p.entry_reason!=="-"&&(
+                    <div className="text-[8px] text-cyan-400/70 mt-1.5 pt-1.5 border-t border-[#0d2137]">買進原因：{p.entry_reason}</div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1795,7 +1817,7 @@ export default function TradeAIPro() {
                 const costBasis=t.total_cost_basis??(t.entry*shares);
                 const hasBreakdown=t.gross_pnl!=null&&t.fees!=null;
                 return(
-                <div key={i} className="bg-[#0a1422] rounded-lg p-3">
+                <div key={i} onClick={()=>viewTradeChart(t)} className="bg-[#0a1422] rounded-lg p-3 cursor-pointer hover:bg-[#0d1a2e] transition-colors active:scale-[0.99]">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-mono font-bold text-white">{t.sym}</span>
@@ -1834,8 +1856,14 @@ export default function TradeAIPro() {
                   </div>
                   <div className="flex items-center justify-between text-[8px] text-gray-700 mt-1">
                     <span>{t.open_time} → {t.close_time}</span>
-                    <span>{t.regime&&t.regime!=="-"?`${REGIME_LABEL[t.regime]||t.regime} · `:""}{t.tag}</span>
+                    <span className="flex items-center gap-1">{t.regime&&t.regime!=="-"?`${REGIME_LABEL[t.regime]||t.regime} · `:""}{t.tag}<Activity className="w-2.5 h-2.5 text-gray-700"/></span>
                   </div>
+                  {(t.entry_reason&&t.entry_reason!=="-")||(t.exit_reason&&t.exit_reason!=="-")?(
+                    <div className="mt-1.5 pt-1.5 border-t border-[#0d2137] space-y-0.5">
+                      {t.entry_reason&&t.entry_reason!=="-"&&<div className="text-[8px] text-cyan-400/70">買進原因：{t.entry_reason}</div>}
+                      {t.exit_reason&&t.exit_reason!=="-"&&<div className="text-[8px] text-amber-400/70">賣出原因：{t.exit_reason}</div>}
+                    </div>
+                  ):null}
                 </div>
               );})}
             </div>
@@ -2929,6 +2957,45 @@ export default function TradeAIPro() {
           </MW>
         );
       }
+      case "tradeChart":{
+        const t=modal.data;
+        const cacheEntry=tradeChartCache[t.sym]||{};
+        const bars=cacheEntry.bars||[];
+        return(
+          <MW title={`${t.sym} ${getStockName(t.sym)} · 當時K線`}>
+            <div className="flex items-center justify-between mb-3 text-[10px]">
+              <span className="text-gray-500">{t.open_time} 進場 → {t.close_time} 出場</span>
+              <span className={N(t.pnl)>=0?"text-emerald-400":"text-red-400"}>{N(t.pnl)>=0?"+":""}NT${N(t.pnl).toLocaleString()} ({t.pct}%)</span>
+            </div>
+            {cacheEntry.loading?(
+              <div className="h-[180px] flex items-center justify-center text-gray-600 text-xs">
+                <RefreshCw className="w-4 h-4 animate-spin mr-2"/>讀取真實歷史K棒中...
+              </div>
+            ):cacheEntry.error||!bars.length?(
+              <div className="h-[180px] flex flex-col items-center justify-center text-gray-600 text-xs gap-1.5 px-4 text-center">
+                <AlertCircle className="w-5 h-5"/>
+                {cacheEntry.error||"查無歷史K棒資料（可能股票池標的太久沒掃過，或非交易日）"}
+              </div>
+            ):(
+              <>
+                <ResponsiveContainer width="100%" height={180}>
+                  <ComposedChart data={bars} margin={{top:4,right:4,bottom:0,left:0}}>
+                    <defs><linearGradient id="tcg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#22d3ee" stopOpacity={0.25}/><stop offset="100%" stopColor="#22d3ee" stopOpacity={0}/></linearGradient></defs>
+                    <CartesianGrid strokeDasharray="1 8" stroke="#0d2137"/>
+                    <XAxis dataKey="time" tick={{fill:"#374151",fontSize:8}} interval={Math.ceil(bars.length/8)} tickLine={false} axisLine={false}/>
+                    <YAxis tick={{fill:"#374151",fontSize:8}} domain={["auto","auto"]} tickLine={false} axisLine={false} width={42}/>
+                    <Tooltip contentStyle={{background:"#0a1422",border:"1px solid #0d2137",borderRadius:8,fontSize:10}} labelStyle={{color:"#6b7280"}}/>
+                    <Area type="monotone" dataKey="price" stroke="#22d3ee" fill="url(#tcg)" strokeWidth={1.5} dot={false}/>
+                    <ReferenceLine y={N(t.entry)} stroke="#fbbf24" strokeDasharray="4 4" label={{value:`進場NT$${t.entry}`,fill:"#fbbf24",fontSize:9,position:"insideTopLeft"}}/>
+                    <ReferenceLine y={N(t.exit)} stroke={N(t.pnl)>=0?"#34d399":"#f87171"} strokeDasharray="4 4" label={{value:`出場NT$${t.exit}`,fill:N(t.pnl)>=0?"#34d399":"#f87171",fontSize:9,position:"insideBottomLeft"}}/>
+                  </ComposedChart>
+                </ResponsiveContainer>
+                <div className="text-[8px] text-gray-700 mt-2">每根為5分鐘聚合K棒(真實歷史資料)，非逐筆tick；虛線標示這筆交易的進場/出場價位</div>
+              </>
+            )}
+          </MW>
+        );
+      }
       case "realGateBlocked":{
         const pv=modal.data?.progress||{};
         return(
@@ -3035,19 +3102,39 @@ export default function TradeAIPro() {
           })}
         </div>
         {/* Stats strip */}
-        <div className="grid grid-cols-4 border-t border-[#0d2137]">
-          {[
+        {/* 修正⑨：這四格原本不管有沒有連線後端，永遠顯示本機手動模擬倉(pf/learn)的數字，
+            跟下面「後端交易紀錄」卡片顯示的後端真實(模擬)交易結果完全是兩套互不相關的數據。
+            這就是「今日顯示+0，但log寫盤後總結-124」這種看起來矛盾的根本原因——
+            不是哪個算錯，是頭兩個本來就沒有接在一起。連線後端時，這裡改成顯示後端真實狀態。 */}
+        {(()=>{
+          const beConnected=broker.status==="connected"&&backendAuto.status;
+          const beStat=backendAuto.status||{};
+          const beAssets=beConnected?N(beStat.capital)+N(beStat.daily_pnl):N(pf.total);
+          const beDayPnL=beConnected?N(beStat.daily_pnl):N(pf.dayPnL);
+          const beWinRate=beConnected?(beStat.daily_trades>0?+(beStat.daily_win/beStat.daily_trades*100).toFixed(1):0):wr;
+          const pv=beStat.paper_validation;
+          const stats=beConnected?[
+            {l:"資產(後端)",v:`NT$${(beAssets/1e3).toFixed(1)}K`,c:"text-white",click:()=>setTab("auto")},
+            {l:"今日(後端)",v:`${beDayPnL>=0?"+":""}NT$${F(beDayPnL,0)}`,c:CC(beDayPnL),click:()=>setTab("auto")},
+            {l:"模擬驗證",v:pv?`${pv.trade_count||0}/${PAPER_VALIDATION_MIN_TRADES}筆`:"—",c:"text-violet-400",click:()=>setTab("auto")},
+            {l:"勝率(後端)",v:`${beWinRate}%`,c:beWinRate>=75?"text-emerald-400":beWinRate>=60?"text-amber-400":"text-red-400",click:()=>setTab("auto")},
+          ]:[
             {l:"資產",v:`NT$${(N(pf.total)/1e3).toFixed(1)}K`,c:"text-white",click:()=>setModal({type:"pfDetail"})},
             {l:"今日",v:`${N(pf.dayPnL)>=0?"+":""}NT$${F(pf.dayPnL,0)}`,c:CC(pf.dayPnL),click:()=>setModal({type:"pfDetail"})},
             {l:"AI信心",v:`${learn.conf}%`,c:"text-violet-400",click:()=>setModal({type:"learnDetail"})},
             {l:"勝率",v:`${wr}%`,c:wr>=75?"text-emerald-400":wr>=60?"text-amber-400":"text-red-400",click:()=>setModal({type:"perfDetail"})},
-          ].map(x=>(
-            <button key={x.l} onClick={x.click} className="text-center py-1.5 border-r border-[#0d2137] last:border-0 hover:bg-[#070f1c] transition-all">
-              <div className="text-[8px] text-gray-700">{x.l}</div>
-              <div className={`text-[10px] font-mono font-bold ${x.c}`}>{x.v}</div>
-            </button>
-          ))}
-        </div>
+          ];
+          return(
+            <div className="grid grid-cols-4 border-t border-[#0d2137]">
+              {stats.map(x=>(
+                <button key={x.l} onClick={x.click} className="text-center py-1.5 border-r border-[#0d2137] last:border-0 hover:bg-[#070f1c] transition-all">
+                  <div className="text-[8px] text-gray-700">{x.l}</div>
+                  <div className={`text-[10px] font-mono font-bold ${x.c}`}>{x.v}</div>
+                </button>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Real mode warning banner ── */}
