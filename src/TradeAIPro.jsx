@@ -816,7 +816,10 @@ export default function TradeAIPro() {
       try{
         const r=await fetch("/api/sinopac?path=auto/status");
         const d=await r.json();
-        if(r.ok) setBackendAuto(b=>({...b,enabled:d.enabled,status:d,log:d.log||[]}));
+        // 記錄「最後一次成功拿到資料」的時間——如果後端整個process掛了(不只是排程卡住)，
+        // 這個輪詢本身會開始失敗/timeout，下面的持倉清單要能誠實顯示「這是幾秒前的舊資料」，
+        // 不能讓使用者誤以為畫面上看到的就是當下這一刻的真實持倉。
+        if(r.ok) setBackendAuto(b=>({...b,enabled:d.enabled,status:d,log:d.log||[],lastFetchedAt:Date.now()}));
       }catch{}
     };
     poll();
@@ -1794,13 +1797,25 @@ export default function TradeAIPro() {
             </div>
           </div>
         )}
-        {broker.status==="connected"&&backendAuto.status?.positions?.length>0&&(
+        {broker.status==="connected"&&backendAuto.status&&(()=>{
+          const secAgo=backendAuto.lastFetchedAt?Math.round((Date.now()-backendAuto.lastFetchedAt)/1000):null;
+          const stale=secAgo===null||secAgo>90;
+          const positions=backendAuto.status.positions||[];
+          return(
           <Card cls="p-4">
-            <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">
-              後端目前持倉（{backendAuto.status.positions.length}筆）
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[9px] text-gray-600 uppercase tracking-wider">
+                後端目前持倉（{positions.length}筆）
+              </div>
+              <div className={`text-[8px] ${stale?"text-red-400":"text-gray-600"}`}>
+                {secAgo===null?"尚未取得資料":stale?`⚠️ 資料已${secAgo}秒未更新，可能無法連線`:`資料更新於${secAgo}秒前`}
+              </div>
             </div>
+            {positions.length===0?(
+              <div className="text-[10px] text-gray-600 py-2">目前無持倉</div>
+            ):(
             <div className="space-y-1.5">
-              {backendAuto.status.positions.map((p,i)=>(
+              {positions.map((p,i)=>(
                 <div key={i} className="bg-[#0a1422] rounded-lg p-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
@@ -1820,9 +1835,11 @@ export default function TradeAIPro() {
                 </div>
               ))}
             </div>
+            )}
             <div className="text-[8px] text-gray-700 mt-2">即時損益請看上方「持倉」統計數字；這裡只顯示進場明細跟AI評分等級</div>
           </Card>
-        )}
+          );
+        })()}
 
         {/* 後端24h自動交易的實際交易紀錄（跟上面的系統訊息日誌分開，這裡只列真正成交的進出場） */}
         {broker.status==="connected"&&(
