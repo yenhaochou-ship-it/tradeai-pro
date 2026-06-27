@@ -65,6 +65,17 @@ const GRADE_STYLE={
   C:"bg-gray-500/15 text-gray-400 border-gray-500/25",
 };
 
+// 風險等級對應的完整class字串（不要用動態組字串，例如`text-${risk}-400`，Tailwind在build時是
+// 用文字掃描source code找出實際出現過的class名稱才會產生對應CSS，動態拼出來的字串如果沒有完整字串
+// 形式出現在程式碼裡，Tailwind根本不知道要生成那條CSS規則，畫面上就會悄悄少了那個樣式——
+// 例如border-red-500/30、bg-amber-400這幾個之前就是這樣不見的，剛好沒人發現)。
+const RISK_BADGE_CLS = {
+  low:  "bg-emerald-500/10 border-emerald-500/30 text-emerald-400",
+  mid:  "bg-amber-500/10 border-amber-500/30 text-amber-400",
+  high: "bg-red-500/10 border-red-500/30 text-red-400",
+};
+const RISK_DOT_CLS = { low:"bg-emerald-400", mid:"bg-amber-400", high:"bg-red-400" };
+
 const RISK_CFG = {
   // maxHoldMin：單筆持倉最長持有分鐘數，超時且未虧損就先了結，避免AI把當沖抱成波段單
   // ↓↓↓ 已與後端 main.py 的 RISK_CFG 同步一致（minConf/alloc/sl/tp/maxPos/maxHoldMin），
@@ -1025,7 +1036,7 @@ export default function TradeAIPro() {
             <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${backendAuto.enabled?"bg-emerald-400 animate-pulse":"bg-gray-700"}`}/>
               <span className="text-xs font-bold text-white">後端AI自動交易</span>
-              <Chip c={`border-${risk==="low"?"emerald":risk==="mid"?"amber":"red"}-500/30 text-${risk==="low"?"emerald":risk==="mid"?"amber":"red"}-400 bg-${risk==="low"?"emerald":risk==="mid"?"amber":"red"}-500/10`}>{RISK_CFG[risk].label}</Chip>
+              <Chip c={RISK_BADGE_CLS[risk]}>{RISK_CFG[risk].label}</Chip>
             </div>
             <span className={`text-[10px] font-bold ${backendAuto.enabled?"text-emerald-400":"text-gray-600"}`}>{backendAuto.enabled?"運行中":"已停止"}</span>
           </div>
@@ -1452,11 +1463,17 @@ export default function TradeAIPro() {
       </Card>
       <Card cls="p-4">
         <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-3">風險等級</div>
+        {backendAuto.enabled&&(
+          <div className="text-[9px] text-amber-400/90 bg-amber-500/10 border border-amber-500/25 rounded-lg p-2.5 mb-3 leading-relaxed">
+            後端運行中無法切換——切換風險等級不會即時套用到正在跑的AI，也會讓現有持倉的停損停利標準變得不清楚。請先到「自動交易」分頁停止後再切換。
+          </div>
+        )}
         <div className="space-y-3">
           {Object.entries(RISK_CFG).map(([k,c])=>(
-            <button key={k} onClick={()=>setRisk(k)} className={`w-full text-left p-3 rounded-xl border transition-all ${risk===k?c.bg:"border-[#0d2137] opacity-60"}`}>
+            <button key={k} disabled={backendAuto.enabled} onClick={()=>setRisk(k)}
+              className={`w-full text-left p-3 rounded-xl border transition-all ${risk===k?c.bg:"border-[#0d2137] opacity-60"} ${backendAuto.enabled?"cursor-not-allowed":""}`}>
               <div className="flex items-center justify-between">
-                <div className={`text-[10px] font-bold ${c.c} mb-1`}>{c.label}{risk===k&&" ✓"}</div>
+                <div className={`text-[10px] font-bold ${c.c} mb-1`}>{c.label}</div>
               </div>
               <div className="text-[9px] text-gray-500">
                 信心門檻 {c.minConf}%↑ · 單筆上限 {c.alloc*100}% · 停損 {c.sl}% · 止盈 {c.tp}% · 最多 {c.maxPos} 筆
@@ -1585,6 +1602,17 @@ export default function TradeAIPro() {
               )}
               {broker.balance.available_after_settlement!=null&&(
                 <Row l="當沖可用資金" v={`NT$${Number(broker.balance.available_after_settlement).toLocaleString()}`} c="text-emerald-400"/>
+              )}
+              {Array.isArray(broker.balance.settlement_schedule)&&broker.balance.settlement_schedule.length>0&&(
+                <div className="mt-2 pt-2 border-t border-[#0d2137]">
+                  <div className="text-[9px] text-gray-600 mb-1.5">交割明細（哪天會交割多少錢）</div>
+                  {broker.balance.settlement_schedule.map((s,i)=>(
+                    <div key={i} className="flex justify-between text-[10px] py-1">
+                      <span className="text-gray-500">{s.date}</span>
+                      <span className="text-amber-400 font-mono">NT${Number(s.amount).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
               )}
             </>}
             <button onClick={disconnectBroker} className="w-full py-2 bg-red-500/10 border border-red-500/25 text-red-400 rounded-lg text-xs font-bold mt-3">中斷連接</button>
@@ -1999,8 +2027,8 @@ export default function TradeAIPro() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className={`flex items-center gap-1.5 text-[9px] px-2.5 py-1 rounded-full border font-bold ${backendAuto.enabled?"bg-emerald-500/10 border-emerald-500/30 text-emerald-400":"bg-[#0d2137] border-[#1a3050] text-gray-600"}`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${backendAuto.enabled?"bg-emerald-400 animate-pulse":"bg-gray-700"}`}/>
+            <div className={`flex items-center gap-1.5 text-[9px] px-2.5 py-1 rounded-full border font-bold ${backendAuto.enabled?RISK_BADGE_CLS[risk]:"bg-[#0d2137] border-[#1a3050] text-gray-600"}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${backendAuto.enabled?`${RISK_DOT_CLS[risk]} animate-pulse`:"bg-gray-700"}`}/>
               {backendAuto.enabled?RISK_CFG[risk].label+"運行":"待機"}
             </div>
           </div>
