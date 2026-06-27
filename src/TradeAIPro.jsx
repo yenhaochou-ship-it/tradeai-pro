@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ComposedChart, Area, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { RefreshCw, X, Activity, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, AlertCircle, Lightbulb, Info, Clock } from "lucide-react";
+import { RefreshCw, X, Activity, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, AlertCircle, Lightbulb, Clock } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════
 // DESIGN TOKENS — Obsidian / Cyber Terminal
@@ -321,128 +321,6 @@ function calcSignal(sym, chartData, liveP, weights={rsi:0.20,macd:0.25,ma:0.20,v
   };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ML 機器學習引擎 — 2層神經網路（純 JavaScript）
-// 輸入 9 個技術指標特徵 → 輸出勝率預測 P(win)
-// ═══════════════════════════════════════════════════════════════
-class NeuralNet {
-  constructor(inputSz=9, hiddenSz=16, lr=0.015) {
-    this.lr = lr; this.inputSz=inputSz; this.hiddenSz=hiddenSz;
-    this.reset();
-  }
-  reset(){
-    const xi=(r,c)=>Array.from({length:r},()=>Array.from({length:c},()=>(Math.random()*2-1)*Math.sqrt(2/c)));
-    this.W1=xi(this.hiddenSz,this.inputSz); this.b1=new Array(this.hiddenSz).fill(0);
-    this.W2=xi(1,this.hiddenSz);           this.b2=[0];
-    this.losses=[]; this.valAcc=0; this.epochs=0; this.trained=false;
-  }
-  _clip(x){return Math.max(-500,Math.min(500,x));}
-  _sig(x){return 1/(1+Math.exp(-this._clip(x)));}
-  _relu(x){return Math.max(0,x);}
-  forward(x){
-    this._a1=this.W1.map((w,i)=>this._relu(w.reduce((s,wi,j)=>s+wi*x[j],0)+this.b1[i]));
-    this._z2=this.W2[0].reduce((s,w,i)=>s+w*this._a1[i],0)+this.b2[0];
-    return this._sig(this._z2);
-  }
-  // Mini-batch SGD
-  trainStep(X,y){
-    let loss=0;
-    for(let n=0;n<X.length;n++){
-      const pred=this.forward(X[n]);
-      const t=y[n];
-      loss+=-(t*Math.log(pred+1e-10)+(1-t)*Math.log(1-pred+1e-10));
-      const dZ2=pred-t;
-      // Update W2,b2
-      for(let j=0;j<this.hiddenSz;j++) this.W2[0][j]-=this.lr*dZ2*this._a1[j];
-      this.b2[0]-=this.lr*dZ2;
-      // Update W1,b1
-      for(let j=0;j<this.hiddenSz;j++){
-        const dH=dZ2*this.W2[0][j]*(this._a1[j]>0?1:0);
-        for(let k=0;k<this.inputSz;k++) this.W1[j][k]-=this.lr*dH*X[n][k];
-        this.b1[j]-=this.lr*dH;
-      }
-    }
-    return loss/X.length;
-  }
-  // 評估驗證集準確率
-  evaluate(X,y){
-    let c=0;
-    for(let i=0;i<X.length;i++) if((this.forward(X[i])>=0.5)===(y[i]>=0.5)) c++;
-    return X.length?c/X.length:0;
-  }
-  predict(x){return this.trained?this.forward(x):0.5;}
-}
-
-// 特徵提取：把技術指標轉成 ML 輸入向量（正規化到 -1~1）
-function extractFeatures(sig, livePrice){
-  const safe=(v,lo=-1,hi=1)=>Math.max(lo,Math.min(hi,isFinite(v)?v:0));
-  const rsiN=safe((N(sig.rsi,50)-50)/50);
-  const srsiN=safe((N(sig.stochRsi,50)-50)/50);
-  const macdN=safe(N(sig.bull,50)-N(sig.bear,50))/100;
-  const maRatio=safe(sig.ma5&&sig.ma20?(sig.ma5/sig.ma20-1)*10:0);
-  const vwapDist=safe(sig.vwap?(livePrice/sig.vwap-1)*20:0);
-  const bbN=safe(N(sig.bbPct,0.5)*2-1);
-  const volN=safe(Math.log(Math.max(0.1,N(sig.volRatio,1)))/2);
-  const trendN=safe(N(sig.trendStr,0.5)*2-1);
-  const timeN=sig.badTime?-1:1;
-  return [rsiN,srsiN,macdN,maRatio,vwapDist,bbN,volN,trendN,timeN];
-}
-
-// 從歷史K線生成訓練資料（標籤：未來5根上漲>1% → 1，否則 → 0）
-function generateTrainingData(chartData){
-  const X=[],y=[],meta=[];
-  Object.entries(chartData).forEach(([sym,cd])=>{
-    if(!cd||cd.length<45) return;
-    for(let i=30;i<cd.length-6;i++){
-      const slice=cd.slice(0,i+1);
-      const prices=slice.map(d=>d.price);
-      const rsiArr=calcRSI(prices);
-      const rsi=rsiArr[rsiArr.length-1]||50;
-      const rsiW=rsiArr.slice(-14).filter(v=>v!==null);
-      const rMin=rsiW.length?Math.min(...rsiW):0, rMax=rsiW.length?Math.max(...rsiW):100;
-      const stochRsi=rMax>rMin?+((rsi-rMin)/(rMax-rMin)*100).toFixed(1):50;
-      const ma5=+(prices.slice(-5).reduce((s,x)=>s+x,0)/5).toFixed(2);
-      const ma20=+(prices.slice(-20).reduce((s,x)=>s+x,0)/20).toFixed(2);
-      const vSlice=slice.slice(-20);
-      const tVol=vSlice.reduce((s,d)=>s+(d.volume||1e6),0)||1;
-      const vwap=+(vSlice.reduce((s,d)=>s+d.price*(d.volume||1e6),0)/tVol).toFixed(2);
-      const variance=prices.slice(-20).reduce((s,x)=>s+Math.pow(x-ma20,2),0)/20;
-      const std=Math.sqrt(variance)||1;
-      const bbPct=+((cd[i].price-(ma20-2*std))/(4*std||1)).toFixed(3);
-      const rv=slice.slice(-3).reduce((s,d)=>s+(d.volume||1e6),0)/3;
-      const av=slice.slice(-20).reduce((s,d)=>s+(d.volume||1e6),0)/20||1;
-      const volRatio=+(rv/av).toFixed(2);
-      const r14=prices.slice(-14);
-      const mxP=Math.max(...r14),mnP=Math.min(...r14);
-      const aM=r14.slice(1).reduce((s,p,i)=>s+Math.abs(p-r14[i]),0)/13||1;
-      const trendStr=+Math.min(1,(mxP-mnP)/(aM*14)).toFixed(2);
-      const lb=cd[i], pb=cd[i-1]||{};
-      const bull2= rsi<33?13:rsi<42?6:0;
-      const bear2= rsi>67?13:rsi>58?6:0;
-      const fakeSig={rsi,stochRsi,ma5,ma20,vwap,bbPct,volRatio,trendStr,bull:bull2+(ma5>ma20?20:0),bear:bear2+(ma5<=ma20?20:0),badTime:false};
-      // 未來5根的漲跌
-      const futPct=(cd[Math.min(i+5,cd.length-1)].price-cd[i].price)/cd[i].price*100;
-      // 做多訓練：上漲>1% → win
-      const buyLabel=futPct>1?1:0;
-      X.push(extractFeatures(fakeSig,cd[i].price));
-      y.push(buyLabel);
-      meta.push({sym,i,futPct,rsi,ma5ma20:ma5>ma20});
-    }
-  });
-  return {X,y,meta};
-}
-
-// 計算特徵重要性（擾動法：輪流擾動每個特徵，看準確率下降多少）
-function featureImportance(model,X,y){
-  const base=model.evaluate(X,y);
-  const featureNames=["RSI","StochRSI","MACD/信號","MA比例","VWAP距離","BB位置","量比","趨勢強","時段"];
-  return featureNames.map((name,fi)=>{
-    const Xp=X.map(row=>{const r=[...row];r[fi]=Math.random()*2-1;return r;});
-    const perturbed=model.evaluate(Xp,y);
-    return {name,importance:Math.max(0,+(base-perturbed).toFixed(4))};
-  }).sort((a,b)=>b.importance-a.importance);
-}
-
 const N=(n,fb=0)=>(typeof n==="number"&&isFinite(n))?n:fb;
 const F=(n,d=2)=>N(n).toFixed(d);
 const CC=n=>N(n)>=0?"text-emerald-400":"text-red-400";
@@ -469,8 +347,7 @@ function Chip({children,c="border-cyan-500/30 text-cyan-400 bg-cyan-500/10"}) {
 }
 
 // ── ◎ 市場頁（含搜尋輸入框）— 提升至頂層保持元件身分穩定 ──────
-function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,onRealPrice,realBases,wlSyncError}) {
-  const cd=charts[selSym]||[], lp=live[selSym]||{}, sig=sigs[selSym]||{action:"hold",conf:50,rsi:50};
+function MarketTab({live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,onRealPrice,realBases,wlSyncError,realSyms}) {
   const [realQuote,setRealQuote]=useState(null); // {sym, price, loading, error}
   // ── 手機向左滑刪除自選股 ──────────────────────────────────────
   const [swipeX,setSwipeX]=useState({});      // {sym: 目前位移px}
@@ -507,13 +384,13 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
         <input value={search} onChange={e=>{setSearch(e.target.value.toUpperCase());setRealQuote(null);}} placeholder="輸入股票代號（如 0050、AAPL）"
           onKeyDown={e=>{
             if(e.key!=="Enter"||!search.trim()) return;
-            if(!wl.includes(search)){setWl(w=>[...w,search]);setSelSym(search);}
+            if(!wl.includes(search)){setWl(w=>[...w,search]);}
             setSearch("");setRealQuote(null);
           }}
           className="flex-1 bg-[#070f1c] border border-[#0d2137] rounded-xl px-3 py-2 text-xs text-white placeholder-gray-700 focus:outline-none focus:border-cyan-500/40"/>
         <button onClick={()=>{
           if(!search.trim()) return;
-          if(!wl.includes(search)){setWl(w=>[...w,search]);setSelSym(search);}
+          if(!wl.includes(search)){setWl(w=>[...w,search]);}
           setSearch("");setRealQuote(null);
         }} className="w-9 h-9 bg-cyan-500/10 border border-cyan-500/25 rounded-xl flex items-center justify-center">
           <Plus className="w-3.5 h-3.5 text-cyan-400"/>
@@ -539,7 +416,6 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
               <button onClick={()=>{
                 onRealPrice?.(realQuote.sym,realQuote.price);
                 setWl(w=>[...w,realQuote.sym]);
-                setSelSym(realQuote.sym);
                 setRealQuote(null);
               }} className="text-[9px] px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 rounded-lg font-bold">+ 新增</button>
             )}
@@ -574,7 +450,7 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
                 onTouchStart={e=>onSwipeStart(sym,e)}
                 onTouchMove={e=>onSwipeMove(sym,e)}
                 onTouchEnd={()=>onSwipeEnd(sym)}
-                onClick={()=>{ if(offset!==0){setSwipeX(s=>({...s,[sym]:0}));return;} setSelSym(sym);setModal({type:"stockModal",data:{sym,lp:l,sig:s}});}}
+                onClick={()=>{ if(offset!==0){setSwipeX(s=>({...s,[sym]:0}));return;} setModal({type:"stockModal",data:{sym,lp:l,sig:s}});}}
                 onContextMenu={e=>{e.preventDefault();setWl(w=>w.filter(s=>s!==sym));}}>
                 <div className="w-7 h-7 rounded-lg bg-[#0d2137] flex items-center justify-center text-[9px] font-bold text-cyan-400 mr-3 flex-shrink-0">
                   {sym.replace(".TW","").slice(0,2)}
@@ -582,7 +458,8 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-mono font-bold text-white flex items-center gap-1.5">
                     {sym}
-                    {broker?.status==="connected"&&!STOCKS[sym]&&<span className="text-[7px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">真實</span>}
+                    {realSyms?.has(sym)&&<span className="text-[7px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">真實</span>}
+                    {broker?.status==="connected"&&!realSyms?.has(sym)&&<span className="text-[7px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/25">模擬</span>}
                   </div>
                   <div className="text-[9px] text-gray-600">{info.name}{info.sector?` · ${info.sector}`:""}</div>
                 </div>
@@ -606,55 +483,6 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
         })}
         <div className="px-3 py-1.5 text-[9px] text-gray-700 text-center">左滑刪除（手機）· 右鍵移除（電腦）· 點擊查看詳情</div>
       </Card>
-
-      {/* Selected chart */}
-      <Card onClick={()=>setModal({type:"chartModal",data:{sym:selSym}})} cls="p-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono font-bold text-white">{selSym}</span>
-            <Chip c={sig.action==="buy"?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":sig.action==="sell"?"bg-red-500/10 border-red-500/25 text-red-400":"border-gray-800 text-gray-600"}>
-              {sig.action==="buy"?"買▲":sig.action==="sell"?"賣▼":"觀望"}
-            </Chip>
-          </div>
-          <div className="text-right">
-            <span className="text-sm font-mono font-bold text-white">{N(lp.price,STOCKS[selSym]?.base??realBases[selSym]??0).toFixed(2)}</span>
-            <span className={`text-[10px] ml-2 ${CC(lp.pct)}`}>{N(lp.pct)>=0?"▲":"▼"}{Math.abs(N(lp.pct)).toFixed(2)}%</span>
-          </div>
-        </div>
-        <ResponsiveContainer width="100%" height={120}>
-          <ComposedChart data={cd} margin={{top:4,right:2,bottom:0,left:0}}>
-            <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#22d3ee" stopOpacity={0.2}/><stop offset="100%" stopColor="#22d3ee" stopOpacity={0}/></linearGradient></defs>
-            <CartesianGrid strokeDasharray="1 8" stroke="#0d2137"/>
-            <XAxis dataKey="time" tick={{fill:"#374151",fontSize:7}} interval={15} tickLine={false} axisLine={false}/>
-            <YAxis tick={{fill:"#374151",fontSize:7}} domain={["auto","auto"]} tickLine={false} axisLine={false} width={40}/>
-            <Tooltip contentStyle={{background:"#070f1c",border:"1px solid #0d2137",borderRadius:8,color:"#fff",fontSize:10}} formatter={v=>[`NT$${v}`,""]}/>
-            <Area type="monotone" dataKey="price" stroke="#22d3ee" fill="url(#ag)" strokeWidth={1.5} dot={false}/>
-            <Line type="monotone" dataKey="ma5"  stroke="#a78bfa" strokeWidth={1} dot={false}/>
-            <Line type="monotone" dataKey="ma20" stroke="#fbbf24" strokeWidth={1} dot={false}/>
-          </ComposedChart>
-        </ResponsiveContainer>
-      </Card>
-
-      {/* Indicators mini — 6 指標 */}
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          {l:"RSI",v:sig.rsi?.toFixed(0),c:sig.rsi<30?"text-emerald-400":sig.rsi>70?"text-red-400":"text-gray-300"},
-          {l:"StochRSI",v:sig.stochRsi?.toFixed(0),c:sig.stochRsi<20?"text-emerald-400":sig.stochRsi>80?"text-red-400":"text-gray-300"},
-          {l:"VWAP",v:sig.vwap?`NT$${sig.vwap.toFixed(0)}`:"-",c:N(lp.price)>N(sig.vwap)?"text-emerald-400":"text-red-400"},
-          {l:"BB位置",v:sig.bbPct!=null?`${(sig.bbPct*100).toFixed(0)}%`:"-",c:sig.bbPct<0.2?"text-emerald-400":sig.bbPct>0.8?"text-red-400":"text-gray-300"},
-          {l:"趨勢強度",v:sig.trendStr!=null?`${(sig.trendStr*100).toFixed(0)}%`:"-",c:sig.trendStr>0.6?"text-amber-400":"text-gray-500"},
-          {l:"信號",v:sig.action==="buy"?"買▲":sig.action==="sell"?"賣▼":"觀",c:sig.action==="buy"?"text-emerald-400":sig.action==="sell"?"text-red-400":"text-gray-600"},
-        ].map(x=>(
-          <Card key={x.l} onClick={()=>setModal({type:"indicModal",data:{sym:selSym,sig}})} cls="p-2.5 text-center">
-            <div className="text-[9px] text-gray-600 mb-1">{x.l}</div>
-            <div className={`text-xs font-mono font-bold ${x.c}`}>{x.v}</div>
-          </Card>
-        ))}
-      </div>
-
-      <div className="text-[9px] text-gray-700 text-center py-2 flex items-center justify-center gap-1.5">
-        <Info className="w-3 h-3"/>這裡只看報價跟線圖，實際下單交給「自動交易」分頁的AI判斷
-      </div>
     </div>
   );
 }
@@ -666,7 +494,6 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
 export default function TradeAIPro() {
   const [tab,      setTab]      = useState("overview");
   const [modal,    setModal]    = useState(null);
-  const [selSym,   setSelSym]   = useState("2849");
   const [wl, setWl] = useState(()=>{
     try{ const s=JSON.parse(localStorage.getItem("wl")||"null"); if(Array.isArray(s)&&s.length) return s; }catch{}
     return ["2849","2836","2834","0050","2882"]; // 預設改為資金規模買得起的台股低價股（搭配高風險設定才買得動，詳見auto面板提示）
@@ -677,10 +504,6 @@ export default function TradeAIPro() {
   const [sigs,     setSigs]     = useState({});
   const [search,   setSearch]   = useState("");
   const [risk,     setRisk]     = useState("low");
-  const [learn,    setLearn]    = useState(()=>{
-    try{ const s=JSON.parse(localStorage.getItem("learn_state")||"null"); if(s&&typeof s==="object") return s; }catch{}
-    return {phase:0,trades:0,wins:0,pnl:0,conf:30,streak:0,maxStreak:0,bonus:0,history:[],weights:{rsi:0.25,macd:0.35,ma:0.25,vol:0.15}};
-  });
   const [instFlows, setInstFlows] = useState({date:null,topBuy:[],topSell:[],loading:false}); // 三大法人真實買賣超（來源：台灣證交所公開資料）
   const [scanResults, setScanResults] = useState({results:[],updated:null,scanning:false,loading:false}); // 全市場飆股雷達掃描結果（後端真實技術指標排序）
   const [broker,   setBroker]   = useState({status:"disconnected",apiKey:"",secretKey:"",account:null,balance:null,error:null}); // 永豐真實帳戶連接
@@ -693,8 +516,6 @@ export default function TradeAIPro() {
   const [paperCapInput, setPaperCapInput] = useState("10000000"); // 模擬資金輸入框，預設1000萬
   const [backendAuto, setBackendAuto] = useState({enabled:false,status:null,log:[],loading:false}); // 後端24h自動交易 // 風控護盾
   const [tradeChartCache, setTradeChartCache] = useState({}); // {symbol: {bars, loading, error}} — 點交易紀錄查看當時K線用，跟自選股charts分開避免被wl清理邏輯誤刪
-  const backendAutoR = useRef(false); // ref讓信心度計算等非同步流程能即時讀到後端自動交易是否運行中
-  useEffect(()=>{backendAutoR.current=backendAuto.enabled;},[backendAuto.enabled]);
   const [backendPaperMode, setBackendPaperMode] = useState(()=>{
     try{ const s=localStorage.getItem("backend_paper_mode"); return s===null?true:s==="true"; }catch{ return true; }
   }); // 後端24h自動交易模式：true=模擬下單(用真實股價算損益,不花真錢)，false=真實下單
@@ -703,59 +524,24 @@ export default function TradeAIPro() {
   const [realBases, setRealBases] = useState({}); // {sym: price} 使用者新增股票的真實起始報價
   const [realNames, setRealNames] = useState(()=>{ try{ return JSON.parse(localStorage.getItem("real_names")||"{}"); }catch{ return {}; } }); // {sym: 真實中文名稱}，來自永豐合約資料，補足內建清單沒有的股票
   useEffect(()=>{ try{ localStorage.setItem("real_names",JSON.stringify(realNames)); }catch{}; realNamesCache=realNames; },[realNames]);
-  // ── ML 機器學習狀態 ──────────────────────────────────────────
-  const [mlModel,    setMlModel]    = useState(()=>{
-    // 嘗試從 localStorage 還原已訓練的模型
-    try{
-      const saved=JSON.parse(localStorage.getItem("ml_model_weights")||"null");
-      if(saved&&saved.W1&&saved.W2){
-        const m=new NeuralNet(saved.inputSz||9,saved.hiddenSz||16,saved.lr||0.015);
-        m.W1=saved.W1; m.b1=saved.b1; m.W2=saved.W2; m.b2=saved.b2;
-        m.valAcc=saved.valAcc||0; m.trained=true;
-        return m;
-      }
-    }catch(e){}
-    return new NeuralNet(9,16,0.015);
-  });
-  const [mlState,    setMlState]    = useState(()=>{
-    try{
-      const saved=JSON.parse(localStorage.getItem("ml_model_weights")||"null");
-      if(saved&&saved.W1){
-        return {trained:true,training:false,epoch:0,totalEpochs:120,
-          loss:[],valAcc:[],bestAcc:saved.valAcc||0,dataSize:0,
-          featureImport:[],prediction:{},
-          lastTrained:`${saved.savedAt}（已還原）`};
-      }
-    }catch(e){}
-    return {trained:false,training:false,epoch:0,totalEpochs:0,
-      loss:[],valAcc:[],bestAcc:0,dataSize:0,
-      featureImport:[],prediction:{},lastTrained:null};
-  });
-  const liveR = useRef({}), learnR = useRef(learn), chartR = useRef({});
-  const sigsR  = useRef({});
+  const liveR = useRef({}), chartR = useRef({});
   const wlR = useRef([]); // 自選股清單的即時參照，讓信號計算迴圈能拿到最新清單（不再侷限於內建模擬股票）
   const autoCapPctR = useRef(100); // ref 讓後端啟動函式能即時讀到最新的資金百分比設定
   const brokerR    = useRef({status:"disconnected"}); // ref 讓各非同步流程能即時讀到 broker 連線狀態
   const realSymR   = useRef(new Set()); // 已確認為「真實報價來源」的股票代號集合，這些不再用亂數模擬跳動
+  const [realSyms, setRealSyms] = useState(new Set()); // 跟realSymR同步的可reactive版本，給畫面上的「真實」標籤用(ref本身不會觸發重新渲染)
+  const markReal = useCallback((sym)=>{
+    if(realSymR.current.has(sym)) return;
+    realSymR.current.add(sym);
+    setRealSyms(prev=>new Set(prev).add(sym));
+  },[]);
   useEffect(()=>{liveR.current=live;},[live]);
   useEffect(()=>{autoCapPctR.current=autoCapPct;},[autoCapPct]);
   useEffect(()=>{brokerR.current=broker;},[broker]);
-  useEffect(()=>{learnR.current=learn;},[learn]);
   useEffect(()=>{chartR.current=charts;},[charts]);
-  useEffect(()=>{sigsR.current=sigs;},[sigs]);
   useEffect(()=>{wlR.current=wl;},[wl]);
   useEffect(()=>{ try{ localStorage.setItem("wl",JSON.stringify(wl)); }catch{} },[wl]);
   useEffect(()=>{ try{ localStorage.setItem("autoCapPct",String(autoCapPct)); }catch{} },[autoCapPct]);
-  // 學習狀態（AI信心度/勝率/連勝/自適應權重）持久化：本機立即存，連線時同步到後端（換裝置也不會重置）
-  useEffect(()=>{
-    try{ localStorage.setItem("learn_state",JSON.stringify(learn)); }catch{}
-    if(brokerR.current?.status==="connected"){
-      const t=setTimeout(()=>{
-        fetch("/api/sinopac?path=learn/state",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(learn)}).catch(()=>{});
-      },1500); // 1.5秒防抖，避免每次小變動都打後端
-      return()=>clearTimeout(t);
-    }
-  },[learn]);
   // 後端自動交易狀態輪詢（連線後每30秒同步）
   useEffect(()=>{
     if(broker.status!=="connected") return;
@@ -800,7 +586,8 @@ export default function TradeAIPro() {
     setCharts(ch); setSparks(sp); setLive(lv);
   },[]);
 
-  // ── Live tick every 2s ───────────────────────────────────────
+  // ── Live tick every 4s（原本2秒，但真實報價15秒才更新一次，等於85%的訊號重算都在算同樣的舊資料，
+  //    調寬一點降低無謂運算，對「多久能反映真實資料變化」幾乎沒有影響）──────
   useEffect(()=>{
     const iv=setInterval(()=>{
       setLive(prev=>{
@@ -817,13 +604,12 @@ export default function TradeAIPro() {
       });
       // Recalc signals
       const ns={};
-      const lrn=learnR.current;
       const lr=liveR.current;
       const cr=chartR.current;
       // 優化：只計算使用者實際自選股清單，不再連帶計算未顯示的內建模擬股票，減少無謂運算
-      wlR.current.forEach(sym=>{ns[sym]=calcSignal(sym,cr,lr,lrn.weights,lrn.bonus);});
+      wlR.current.forEach(sym=>{ns[sym]=calcSignal(sym,cr,lr);});
       setSigs(ns);
-    },2000);
+    },4000);
     return()=>clearInterval(iv);
   },[]);
 
@@ -861,9 +647,9 @@ export default function TradeAIPro() {
     if(broker.status!=="connected") return;
     let cancelled=false;
     const refresh=async()=>{
-      const realSyms=wl.filter(sym=>realSymR.current.has(sym)&&!STOCKS[sym]);
-      if(realSyms.length===0) return;
-      const results=await Promise.allSettled(realSyms.map(async sym=>{
+      const realSymsToRefresh=wl.filter(sym=>realSymR.current.has(sym)&&!STOCKS[sym]);
+      if(realSymsToRefresh.length===0) return;
+      const results=await Promise.allSettled(realSymsToRefresh.map(async sym=>{
         const r=await fetch(`/api/sinopac?path=history/${encodeURIComponent(sym)}?bars=90`);
         const d=await r.json();
         if(!r.ok||!d.bars||d.bars.length<20) throw new Error("no data");
@@ -902,7 +688,7 @@ export default function TradeAIPro() {
           const{price,change=0,change_percent=0,name}=r.value;
           updates[sym]={price:Number(price),chg:Number(change),pct:Number(change_percent)};
           if(name) nameUpdates[sym]=name; // 永豐回傳的真實中文名稱
-          realSymR.current.add(sym); // 標記為真實報價來源，停用該股的亂數模擬跳動
+          markReal(sym); // 標記為真實報價來源，停用該股的亂數模擬跳動
         }
       });
       if(Object.keys(nameUpdates).length>0){
@@ -920,7 +706,7 @@ export default function TradeAIPro() {
     fetchAll();
     const iv=setInterval(fetchAll,15000); // 每15秒更新一次真實報價
     return()=>{cancelled=true;clearInterval(iv);};
-  },[broker.status,wl]);
+  },[broker.status,wl,markReal]);
 
   // ── 清理已移除自選股的殘留資料（避免記憶體累積、避免移除後重新加入出現舊資料）──
   const prevWlR = useRef(wl);
@@ -929,6 +715,7 @@ export default function TradeAIPro() {
     prevWlR.current = wl;
     if(removed.length===0) return;
     removed.forEach(sym=>realSymR.current.delete(sym));
+    setRealSyms(prev=>{ const n=new Set(prev); removed.forEach(s=>n.delete(s)); return n; });
     setCharts(p=>{ const n={...p}; removed.forEach(s=>delete n[s]); return n; });
     setSparks(p=>{ const n={...p}; removed.forEach(s=>delete n[s]); return n; });
     setLive(p=>{ const n={...p}; removed.forEach(s=>delete n[s]); return n; });
@@ -954,7 +741,7 @@ export default function TradeAIPro() {
             if(hr.ok&&hd.bars&&hd.bars.length>=20){
               realCharts[sym]=hd.bars;
               bases[sym]=hd.bars[hd.bars.length-1].close;
-              realSymR.current.add(sym);
+              markReal(sym);
             }
           }catch{}
           // 沒有真實歷史K棒時，至少嘗試抓目前報價當基準（用於模擬圖表的起點，比預設100準確）
@@ -962,7 +749,7 @@ export default function TradeAIPro() {
             try{
               const r=await fetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
               const d=await r.json();
-              if(r.ok&&d.price){ bases[sym]=Number(d.price); realSymR.current.add(sym); if(d.name) newNames[sym]=d.name; }
+              if(r.ok&&d.price){ bases[sym]=Number(d.price); markReal(sym); if(d.name) newNames[sym]=d.name; }
             }catch{}
           }
         }));
@@ -1008,50 +795,7 @@ export default function TradeAIPro() {
         return next;
       });
     })();
-  },[wl,realBases]);
-
-  // ── Auto confidence builder ──────────────────────────────────
-  // 每 8 秒根據信號品質、勝率、連勝自動提升 AI 信心度
-  useEffect(()=>{
-    const iv=setInterval(()=>{
-      const curSigs=sigsR.current;
-      const curAutoOn=backendAutoR.current; // 改用後端自動交易狀態（本機自動當沖已移除，後端是現在唯一的自動交易系統）
-      setLearn(lrn=>{
-        if(lrn.conf>=95) return lrn;
-        const allSigs=Object.values(curSigs);
-        const strong=allSigs.filter(s=>s.action!=="hold"&&s.conf>=65);
-        const consistent=allSigs.filter(s=>s.action!=="hold"&&s.conf>=75);
-        const wr=lrn.trades>0?lrn.wins/lrn.trades:0;
-        // Base increment — system always learning from market data
-        let inc=0.18;
-        // Signal quality boost
-        if(strong.length>=2)  inc+=0.20;
-        if(consistent.length>=2) inc+=0.25;
-        // Auto mode boost
-        if(curAutoOn)         inc+=0.15;
-        if(curAutoOn&&wr>=0.6)inc+=0.30;
-        // Win rate boost
-        if(wr>=0.70)          inc+=0.40;
-        if(wr>=0.80)          inc+=0.30;
-        // Streak boost
-        if(lrn.streak>=2)     inc+=0.20;
-        if(lrn.streak>=5)     inc+=0.30;
-        // Trade history boost
-        if(lrn.trades>=10)    inc+=0.15;
-        if(lrn.trades>=30)    inc+=0.15;
-        // Penalty on losing streak
-        if(lrn.streak===0&&lrn.trades>0) inc-=0.05;
-        const newConf=Math.min(95,+(lrn.conf+inc).toFixed(1));
-        const newBonus=Math.max(0,Math.min(18,(wr-0.50)*55+consistent.length*0.8));
-        // Phase auto-advance by confidence thresholds
-        const confThresh=[0,38,50,62,72,83];
-        let newPhase=lrn.phase;
-        if(newPhase<5&&newConf>=confThresh[newPhase+1]) newPhase=Math.min(5,newPhase+1);
-        return{...lrn,conf:newConf,bonus:+newBonus.toFixed(1),phase:newPhase};
-      });
-    },8000);
-    return()=>clearInterval(iv);
-  },[]);
+  },[wl,realBases,markReal]);
 
   // ── Close position ───────────────────────────────────────────
   // ── Auto trading engine (30s) ────────────────────────────────
@@ -1080,40 +824,10 @@ export default function TradeAIPro() {
         const pd=await pr.json();
         if(pr.ok&&Array.isArray(pd)) setRealPos(pd);
       }catch{}
-      // 若本機已有訓練過的ML模型（localStorage），同步到後端供自動交易參考
-      try{
-        const saved=JSON.parse(localStorage.getItem("ml_model_weights")||"null");
-        if(saved&&saved.W1&&Object.keys(mlState.prediction||{}).length>0){
-          const predictions01={};
-          Object.entries(mlState.prediction).forEach(([sym,v])=>{predictions01[sym]=+(v/100).toFixed(3);});
-          fetch("/api/sinopac?path=ml/predictions",{method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({predictions:predictions01})}).catch(()=>{});
-        }
-      }catch{}
-      // 從後端還原學習狀態（AI信心度/勝率/連勝/權重）——換裝置、清過快取也能接回進度
-      try{
-        const lr=await fetch("/api/sinopac?path=learn/state");
-        const ld=await lr.json();
-        if(lr.ok&&ld&&typeof ld.trades==="number"&&ld.trades>=(learn.trades||0)){
-          // 只在後端紀錄比本機更新（trades較多）時才覆蓋，避免反向覆蓋掉本機剛累積的新進度
-          setLearn(ld);
-        }
-      }catch{}
-      // 從後端還原ML神經網路模型權重（換裝置也能接續使用已訓練的模型）
-      try{
-        const mr=await fetch("/api/sinopac?path=ml/model");
-        const md=await mr.json();
-        if(mr.ok&&md&&md.W1&&!mlState.trained){
-          const m=new NeuralNet(md.inputSz||9,md.hiddenSz||16,md.lr||0.015);
-          m.W1=md.W1; m.b1=md.b1; m.W2=md.W2; m.b2=md.b2; m.valAcc=md.valAcc||0; m.trained=true;
-          setMlModel(m);
-          setMlState(s=>({...s,trained:true,bestAcc:md.valAcc||0,lastTrained:`${md.savedAt||""}（自後端還原）`}));
-        }
-      }catch{}
     }catch(e){
       setBroker(b=>({...b,status:"disconnected",error:e.message||"連接失敗，請確認金鑰正確"}));
     }
-  },[broker.apiKey,broker.secretKey,mlState.prediction,mlState.trained,learn.trades]);
+  },[broker.apiKey,broker.secretKey]);
 
   // ── 自動連接：開啟網站時若已有記住的金鑰，直接自動連接永豐，不需手動再按一次 ──
   const autoConnectedR = useRef(false); // 確保整次瀏覽只自動嘗試一次，不會在使用者手動中斷連接後又被打擾
@@ -1225,93 +939,9 @@ export default function TradeAIPro() {
     }
   },[broker.status,backendAuto.enabled,backendAuto.loading,backendAuto.status,startBackendAuto]);
 
-  // ── ML 訓練（非同步，分批執行避免 UI 凍結）────────────────────
-  const trainML = useCallback(async()=>{
-    const cd=chartR.current;
-    if(Object.keys(cd).length===0) return;
-    setMlState(s=>({...s,training:true,epoch:0,loss:[],valAcc:[]}));
-    // 生成訓練資料
-    await new Promise(r=>setTimeout(r,50));
-    const {X,y}=generateTrainingData(cd);
-    if(X.length<30){setMlState(s=>({...s,training:false}));return;}
-    // 80/20 訓練/驗證分割
-    const split=Math.floor(X.length*0.8);
-    const Xtrain=X.slice(0,split), ytrain=y.slice(0,split);
-    const Xval=X.slice(split),   yval=y.slice(split);
-    const model=new NeuralNet(9,16,0.015);
-    const EPOCHS=120, BATCH=32;
-    const lossHist=[], accHist=[];
-    setMlState(s=>({...s,totalEpochs:EPOCHS,dataSize:X.length}));
-    // 分批訓練（每10 epoch 讓 UI 更新）
-    for(let e=0;e<EPOCHS;e+=10){
-      await new Promise(r=>setTimeout(r,0));
-      for(let sub=0;sub<10&&(e+sub)<EPOCHS;sub++){
-        const ep=e+sub;
-        // Shuffle
-        for(let i=Xtrain.length-1;i>0;i--){
-          const j=Math.floor(Math.random()*(i+1));
-          [Xtrain[i],Xtrain[j]]=[Xtrain[j],Xtrain[i]];
-          [ytrain[i],ytrain[j]]=[ytrain[j],ytrain[i]];
-        }
-        let l=0;
-        for(let b=0;b<Xtrain.length;b+=BATCH) l+=model.trainStep(Xtrain.slice(b,b+BATCH),ytrain.slice(b,b+BATCH));
-        const avgL=+(l/(Math.ceil(Xtrain.length/BATCH))).toFixed(4);
-        const acc=+(model.evaluate(Xval,yval)*100).toFixed(1);
-        lossHist.push({e:ep+1,loss:avgL}); accHist.push({e:ep+1,acc});
-        if(acc>model.valAcc) model.valAcc=acc;
-      }
-      setMlState(s=>({...s,epoch:Math.min(e+10,EPOCHS),loss:[...lossHist],valAcc:[...accHist],bestAcc:model.valAcc}));
-    }
-    model.trained=true;
-    // 計算特徵重要性
-    const fi=featureImportance(model,Xval,yval);
-    // 用目前信號做預測
-    const preds={};
-    Object.entries(sigs).forEach(([sym,sig])=>{
-      const lp=liveR.current[sym];
-      if(lp){const feat=extractFeatures(sig,lp.price);preds[sym]=+(model.predict(feat)*100).toFixed(1);}
-    });
-    setMlModel(model);
-    const modelSnapshot={
-      W1:model.W1, b1:model.b1, W2:model.W2, b2:model.b2,
-      inputSz:model.inputSz, hiddenSz:model.hiddenSz, lr:model.lr,
-      valAcc:model.valAcc, savedAt:new Date().toLocaleString("zh-TW")
-    };
-    // 訓練完成後儲存模型到 localStorage（同裝置重整頁面立即可用）
-    try{ localStorage.setItem("ml_model_weights",JSON.stringify(modelSnapshot)); }catch(e){}
-    setMlState(s=>({...s,trained:true,training:false,featureImport:fi,prediction:preds,bestAcc:model.valAcc,lastTrained:new Date().toLocaleTimeString("zh-TW")}));
-    // 將訓練結果同步到後端：① 完整模型權重（換裝置可還原）② 預測結果（讓後端下單邏輯實際參考）
-    if(brokerR.current?.status==="connected"){
-      fetch("/api/sinopac?path=ml/model",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify(modelSnapshot)}).catch(()=>{});
-      const predictions01={};
-      Object.entries(preds).forEach(([sym,v])=>{predictions01[sym]=+(v/100).toFixed(3);});
-      fetch("/api/sinopac?path=ml/predictions",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({predictions:predictions01})}).catch(()=>{});
-    }
-  },[sigs]);
-
-  // ── ML 即時預測（每 10s 更新）────────────────────────────────
-  useEffect(()=>{
-    if(!mlModel.trained) return;
-    const iv=setInterval(()=>{
-      const preds={};
-      Object.entries(sigsR.current).forEach(([sym,sig])=>{
-        const lp=liveR.current[sym];
-        if(lp){const feat=extractFeatures(sig,lp.price);preds[sym]=+(mlModel.predict(feat)*100).toFixed(1);}
-      });
-      setMlState(s=>({...s,prediction:preds}));
-    },10000);
-    return()=>clearInterval(iv);
-  },[mlModel]);
-
   // ═══════════════════════════════════════════════════════════════
   // COMPUTED
   // ═══════════════════════════════════════════════════════════════
-  // 修正：只統計「自選股清單裡」的訊號，避免把已移除的內建模擬股票也算進活躍信號數
-  const buySignals = Object.entries(sigs).filter(([sym,v])=>wl.includes(sym)&&v.action==="buy");
-  const sellSignals = Object.entries(sigs).filter(([sym,v])=>wl.includes(sym)&&v.action==="sell");
-
   // 共用元件 Card/Row/Chip 已提升至檔案頂層（穩定身分，避免重複渲染時被重建）
 
   // ═══════════════════════════════════════════════════════════════
@@ -1402,7 +1032,7 @@ export default function TradeAIPro() {
           <div className="grid grid-cols-3 gap-2 text-center">
             <div><div className="text-[9px] text-gray-600">持倉中</div><div className="text-xs font-mono font-bold text-white">{(beStat.positions||[]).length}筆</div></div>
             <div><div className="text-[9px] text-gray-600">模擬驗證</div><div className="text-xs font-mono font-bold text-violet-400">{pv?.trade_count||0}/{PAPER_VALIDATION_MIN_TRADES}筆</div></div>
-            <div onClick={e=>{e.stopPropagation();setModal({type:"activeSignalsDetail"});}} className="cursor-pointer"><div className="text-[9px] text-gray-600">活躍信號</div><div className="text-xs font-mono font-bold text-cyan-400 underline decoration-dotted">{buySignals.length+sellSignals.length}個</div></div>
+            <div onClick={e=>{e.stopPropagation();setModal({type:"funnelDetail"});}} className="cursor-pointer"><div className="text-[9px] text-gray-600">今日掃描</div><div className="text-xs font-mono font-bold text-cyan-400 underline decoration-dotted">{beStat.funnel?.scanned||0}次</div></div>
           </div>
         </Card>
 
@@ -1462,7 +1092,7 @@ export default function TradeAIPro() {
                   </div>
                   <button onClick={()=>{
                     if(!inWl) setWl(w=>[...w,r.symbol]);
-                    setSelSym(r.symbol); setTab("market");
+                    setTab("market");
                   }} className="w-full py-1.5 bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 rounded-lg text-[10px] font-bold">
                     {inWl?"前往市場頁查看":"加入自選股並查看"}
                   </button>
@@ -1975,9 +1605,10 @@ export default function TradeAIPro() {
           ):(
             <div className="space-y-2">
               {realPos.map(p=>(
-                <div key={p.symbol} className="bg-[#0a1622] rounded-xl p-3 border border-[#0d2137]">
+                <div key={p.symbol} onClick={()=>setModal({type:"realPosDetail",data:p})}
+                  className="bg-[#0a1622] rounded-xl p-3 border border-[#0d2137] cursor-pointer hover:border-cyan-500/30">
                   <div className="flex justify-between items-center mb-1">
-                    <div><span className="text-xs font-mono font-bold text-white">{p.symbol}</span><span className="text-[9px] text-gray-500 ml-2">{p.name}</span></div>
+                    <div><span className="text-xs font-mono font-bold text-white">{p.symbol}</span><span className="text-[9px] text-gray-500 ml-2">{getStockName(p.symbol)}</span></div>
                     <span className={`text-xs font-mono font-bold ${(p.pnl||0)>=0?"text-emerald-400":"text-red-400"}`}>{(p.pnl||0)>=0?"+":""}{Number(p.pnl||0).toFixed(0)}</span>
                   </div>
                   <div className="flex justify-between text-[9px] text-gray-500">
@@ -2106,32 +1737,6 @@ export default function TradeAIPro() {
           </MW>
         );
       }
-      case "activeSignalsDetail":
-        return(
-          <MW title="活躍信號明細">
-            {buySignals.length===0&&sellSignals.length===0?(
-              <div className="text-center py-8 text-gray-600 text-xs">目前自選股中沒有任何明確買賣信號</div>
-            ):(
-              <div className="space-y-2">
-                {[...buySignals,...sellSignals].map(([sym,sig])=>(
-                  <div key={sym} onClick={()=>{setModal(null);setTab("market");}}
-                    className="flex items-center justify-between bg-[#070f1c] border border-[#0d2137] rounded-xl p-3 cursor-pointer hover:border-cyan-500/30">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-1.5 h-1.5 rounded-full ${sig.action==="buy"?"bg-emerald-400":"bg-red-400"}`}/>
-                      <span className="text-xs font-mono font-bold text-white">{sym}</span>
-                      <span className="text-[9px] text-gray-600">{getStockName(sym)}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-bold ${sig.action==="buy"?"text-emerald-400":"text-red-400"}`}>{sig.action==="buy"?"買▲":"賣▼"}</span>
-                      <span className="text-[10px] text-violet-400 font-mono">{sig.conf}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </MW>
-        );
-
       case "indicModal": {
         const{sym,sig}=data;
         return(
@@ -2258,6 +1863,33 @@ export default function TradeAIPro() {
               <button onClick={()=>{setModal(null);startBackendAuto(true);}} className="w-full py-2.5 bg-red-500/10 border border-red-500/25 text-red-400 rounded-xl text-sm font-bold">我了解風險，強制啟動真實下單</button>
               <button onClick={()=>setModal(null)} className="w-full py-2 bg-[#070f1c] border border-[#0d2137] text-gray-500 rounded-xl text-sm font-bold">取消</button>
             </div>
+          </MW>
+        );
+      }
+      case "realPosDetail": {
+        const p=data;
+        const totalCost=Number(p.avg_price||0)*Number(p.quantity||0);
+        const isLong=(p.direction||"Buy")!=="Sell";
+        return(
+          <MW title={`${p.symbol} · ${getStockName(p.symbol)}`}>
+            <div className="text-center py-3 mb-3 bg-[#0a1422] rounded-xl border border-[#0d2137]">
+              <div className={`text-2xl font-mono font-bold ${(p.pnl||0)>=0?"text-emerald-400":"text-red-400"}`}>
+                {(p.pnl||0)>=0?"+":""}NT${Number(p.pnl||0).toLocaleString(undefined,{maximumFractionDigits:0})}
+              </div>
+              <div className={`text-sm font-mono mt-1 ${(p.pnl_percent||0)>=0?"text-emerald-400":"text-red-400"}`}>
+                {(p.pnl_percent||0)>=0?"+":""}{Number(p.pnl_percent||0).toFixed(2)}%
+              </div>
+            </div>
+            <Row l="方向" v={isLong?"做多（持有現股）":"做空（融券）"} c={isLong?"text-emerald-400":"text-red-400"}/>
+            <Row l="持有股數" v={`${Number(p.quantity||0).toLocaleString()}股`}/>
+            <Row l="均價（每股成本）" v={`NT$${Number(p.avg_price||0).toFixed(2)}`}/>
+            <Row l="買進總成本" v={`NT$${totalCost.toLocaleString(undefined,{maximumFractionDigits:0})}`} c="text-amber-400"/>
+            <Row l="現價" v={`NT$${Number(p.current_price||0).toFixed(2)}`}/>
+            <Row l="目前市值" v={`NT$${Number(p.value||0).toLocaleString(undefined,{maximumFractionDigits:0})}`} c="text-cyan-400"/>
+            <div className="text-[9px] text-gray-700 mt-3 leading-relaxed">
+              損益計算：{Number(p.quantity||0).toLocaleString()}股 ×（現價NT${Number(p.current_price||0).toFixed(2)} − 均價NT${Number(p.avg_price||0).toFixed(2)}）{isLong?"":"（做空方向相反）"} = {(p.pnl||0)>=0?"+":""}NT${Number(p.pnl||0).toLocaleString(undefined,{maximumFractionDigits:0})}
+            </div>
+            <div className="text-[9px] text-gray-700 mt-1 leading-relaxed">這是永豐真實帳戶的庫存損益，不含買進時已付出的手續費（永豐持倉資料本身不含這筆），實際入袋金額會比這裡顯示的數字再扣一點交易成本。</div>
           </MW>
         );
       }
@@ -2409,7 +2041,7 @@ export default function TradeAIPro() {
       {/* ── Content ── */}
       <div className="px-4 py-4 pb-28">
         {tab==="overview" && OverviewTab()}
-        {tab==="market"   && <MarketTab selSym={selSym} setSelSym={setSelSym} charts={charts} live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} broker={broker} realBases={realBases} onRealPrice={(sym,price)=>setRealBases(b=>({...b,[sym]:price}))} wlSyncError={wlSyncError}/>}
+        {tab==="market"   && <MarketTab live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} broker={broker} realBases={realBases} onRealPrice={(sym,price)=>setRealBases(b=>({...b,[sym]:price}))} wlSyncError={wlSyncError} realSyms={realSyms}/>}
         {tab==="auto"     && AutoTab()}
         {tab==="records"  && RecordsTab()}
         {tab==="strategy" && StrategyTab()}
