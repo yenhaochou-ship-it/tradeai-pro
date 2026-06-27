@@ -666,7 +666,7 @@ function MarketTab({selSym,setSelSym,charts,live,sigs,sparks,search,setSearch,wl
 export default function TradeAIPro() {
   const [tab,      setTab]      = useState("overview");
   const [modal,    setModal]    = useState(null);
-  const [selSym,   setSelSym]   = useState("NVDA");
+  const [selSym,   setSelSym]   = useState("2849");
   const [wl, setWl] = useState(()=>{
     try{ const s=JSON.parse(localStorage.getItem("wl")||"null"); if(Array.isArray(s)&&s.length) return s; }catch{}
     return ["2849","2836","2834","0050","2882"]; // 預設改為資金規模買得起的台股低價股（搭配高風險設定才買得動，詳見auto面板提示）
@@ -1598,13 +1598,13 @@ export default function TradeAIPro() {
               );
             })()}
             {backendAuto.log.length>0&&(
-              <div className="mt-3 max-h-24 overflow-y-auto space-y-1">
+              <div className="mt-3 max-h-24 overflow-y-auto overflow-x-hidden space-y-1">
                 {backendAuto.log.slice(0,5).map((l,i)=>(
                   <div key={i} onClick={()=>setModal({type:"logDetail",data:l})}
                     className="flex gap-2 text-[9px] cursor-pointer hover:bg-[#0a1422] rounded px-1 -mx-1 py-0.5">
                     <span className="text-gray-700 flex-shrink-0">{l.ts}</span>
-                    <span className="text-gray-500">{l.sym}</span>
-                    <span className="text-gray-400 underline decoration-dotted decoration-gray-700">{l.msg}</span>
+                    <span className="text-gray-500 flex-shrink-0">{l.sym}</span>
+                    <span className="text-gray-400 underline decoration-dotted decoration-gray-700 min-w-0 break-words">{l.msg}</span>
                   </div>
                 ))}
               </div>
@@ -2372,19 +2372,6 @@ export default function TradeAIPro() {
               {backendAuto.enabled?RISK_CFG[risk].label+"運行":"待機"}
             </div>
           </div>
-        </div>
-        {/* Ticker */}
-        <div className="flex gap-4 px-4 pb-1.5 overflow-x-auto" style={{scrollbarWidth:"none"}}>
-          {wl.map(sym=>{
-            const l=live[sym],s=STOCKS[sym];
-            return(
-              <button key={sym} onClick={()=>{setSelSym(sym);setTab("market");}} className="flex items-center gap-1.5 flex-shrink-0">
-                <span className="text-[9px] text-gray-600 font-mono">{sym}</span>
-                <span className="text-[9px] font-mono font-bold text-white">{N(l?.price,s?.base??0).toFixed(2)}</span>
-                <span className={`text-[9px] font-bold ${CC(l?.pct)}`}>{N(l?.pct)>=0?"▲":"▼"}{Math.abs(N(l?.pct)).toFixed(2)}%</span>
-              </button>
-            );
-          })}
         </div>
         {/* Stats strip：連線時顯示後端真實狀態，未連線時不裝作有數據可看 */}
         {(()=>{
