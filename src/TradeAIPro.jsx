@@ -1353,6 +1353,15 @@ export default function TradeAIPro() {
             </div>
           </div>
         )}
+        {beStat.lgbm_model&&!beStat.lgbm_model.loaded&&(
+          <div onClick={()=>setTab("strategy")} className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-2 cursor-pointer">
+            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5"/>
+            <div>
+              <div className="text-sm font-bold text-amber-400">LightGBM模型尚未載入，目前不會進場</div>
+              <div className="text-[10px] text-amber-300/80 mt-0.5">這是預期內的設計（沒模型就不交易），請先在自己電腦上跑train_lgbm_model.py訓練並部署 · 點此查看詳情</div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <Card onClick={()=>setTab("auto")} cls="p-4">
@@ -1804,6 +1813,10 @@ export default function TradeAIPro() {
         <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-3">進場判斷模型</div>
         <Row l="決策引擎" v="LightGBM 做多勝率模型" c="text-violet-400"/>
         <Row l="特徵來源" v="技術指標+市場環境+OFI大單流+價差+大盤同步+時段 共18項"/>
+        <Row l="模型狀態" v={backendAuto.status?.lgbm_model?.loaded?"✅ 已載入":"❌ 尚未載入"} c={backendAuto.status?.lgbm_model?.loaded?"text-emerald-400":"text-red-400"}/>
+        {backendAuto.status?.lgbm_model&&!backendAuto.status.lgbm_model.loaded&&(
+          <div className="text-[9px] text-red-400/80 mt-1.5 leading-relaxed">{backendAuto.status.lgbm_model.error}</div>
+        )}
         <Row l="驗證狀態" v={backendAuto.status?.paper_validation?.trade_count>=PAPER_VALIDATION_MIN_TRADES?"已達20筆門檻":"模擬驗證中"} c="text-amber-400"/>
         <div className="text-[9px] text-gray-700 mt-2 leading-relaxed">沒有訓練好的模型檔案時，後端會誠實地不進場，不會悄悄退回舊規則——這是刻意設計，避免在不知情的情況下用未驗證的邏輯下單。</div>
       </Card>
