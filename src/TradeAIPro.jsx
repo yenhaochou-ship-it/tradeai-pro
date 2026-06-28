@@ -827,10 +827,16 @@ export default function TradeAIPro() {
 
   // ── Close position ───────────────────────────────────────────
   // ── Auto trading engine (30s) ────────────────────────────────
+  const connectingR=useRef(false); // 同步防止connectBroker被重複呼叫——broker.status的更新不是同步的，
+  // 光靠disabled={broker.status==="connecting"}這個畫面上的防呆，在自動連線生效跟手動點擊之間還是有
+  // 一個小空窗可能讓兩邊都呼叫到，造成同一個/connect請求送兩次(後端OFI訂閱因此短時間內被呼叫兩次，
+  // 第二次因為股票都已經訂閱過，迴圈裡直接continue跳過，回傳0/49成功，被log訊息誤判成「訂閱失敗」)。
   const connectBroker = useCallback(async()=>{
     if(!broker.apiKey.trim()||!broker.secretKey.trim()){
       setBroker(b=>({...b,error:"請輸入 API Key 與 Secret Key"})); return;
     }
+    if(connectingR.current) return;  // 已經有一次連線在進行中，直接忽略這次重複呼叫
+    connectingR.current=true;
     setBroker(b=>({...b,status:"connecting",error:null}));
     try{
       const r=await fetch("/api/sinopac?path=connect",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -854,6 +860,8 @@ export default function TradeAIPro() {
       }catch{}
     }catch(e){
       setBroker(b=>({...b,status:"disconnected",error:e.message||"連接失敗，請確認金鑰正確"}));
+    }finally{
+      connectingR.current=false;
     }
   },[broker.apiKey,broker.secretKey]);
 
