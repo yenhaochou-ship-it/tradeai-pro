@@ -546,6 +546,14 @@ export default function TradeAIPro() {
     realSymR.current.add(sym);
     setRealSyms(prev=>new Set(prev).add(sym));
   },[]);
+  // 修正：報價(現價)跟歷史K棒(圖表)是兩個獨立的API呼叫，會各自獨立成功或失敗——
+  // 原本只有一個markReal，只要報價抓到就標記「真實」，但圖表那邊如果剛好失敗，會退回genHistory()
+  // 產生的假K棒(用真實現價當起點，但時間軸是用現在時鐘往回推，跟實際交易時段無關)，
+  // 畫面上卻還是顯示「真實報價」，讓人以為整張圖都是真的。改成圖表的真實性獨立追蹤。
+  const [realChartSyms, setRealChartSyms] = useState(new Set());
+  const markRealChart = useCallback((sym)=>{
+    setRealChartSyms(prev=>prev.has(sym)?prev:new Set(prev).add(sym));
+  },[]);
   useEffect(()=>{liveR.current=live;},[live]);
   useEffect(()=>{autoCapPctR.current=autoCapPct;},[autoCapPct]);
   useEffect(()=>{brokerR.current=broker;},[broker]);
@@ -668,14 +676,14 @@ export default function TradeAIPro() {
       }));
       if(cancelled) return;
       const updates={};
-      results.forEach(r=>{ if(r.status==="fulfilled") updates[r.value.sym]=r.value.bars; });
+      results.forEach(r=>{ if(r.status==="fulfilled"){ updates[r.value.sym]=r.value.bars; markRealChart(r.value.sym); } });
       if(Object.keys(updates).length>0){
         setCharts(prev=>({...prev,...updates}));
       }
     };
     const iv=setInterval(refresh,60000); // 每60秒刷新一次真實歷史K棒
     return()=>{cancelled=true;clearInterval(iv);};
-  },[broker.status,wl]);
+  },[broker.status,wl,markRealChart]);
 
   // ── 真實報價輪詢（broker 連線後持續向後端抓真實即時股價，取代模擬數據）──
   useEffect(()=>{
@@ -727,6 +735,7 @@ export default function TradeAIPro() {
     if(removed.length===0) return;
     removed.forEach(sym=>realSymR.current.delete(sym));
     setRealSyms(prev=>{ const n=new Set(prev); removed.forEach(s=>n.delete(s)); return n; });
+    setRealChartSyms(prev=>{ const n=new Set(prev); removed.forEach(s=>n.delete(s)); return n; });
     setCharts(p=>{ const n={...p}; removed.forEach(s=>delete n[s]); return n; });
     setSparks(p=>{ const n={...p}; removed.forEach(s=>delete n[s]); return n; });
     setLive(p=>{ const n={...p}; removed.forEach(s=>delete n[s]); return n; });
@@ -753,6 +762,7 @@ export default function TradeAIPro() {
               realCharts[sym]=hd.bars;
               bases[sym]=hd.bars[hd.bars.length-1].close;
               markReal(sym);
+              markRealChart(sym);
             }
           }catch{}
           // 沒有真實歷史K棒時，至少嘗試抓目前報價當基準（用於模擬圖表的起點，比預設100準確）
@@ -806,7 +816,7 @@ export default function TradeAIPro() {
         return next;
       });
     })();
-  },[wl,realBases,markReal]);
+  },[wl,realBases,markReal,markRealChart]);
 
   // ── Close position ───────────────────────────────────────────
   // ── Auto trading engine (30s) ────────────────────────────────
@@ -1733,8 +1743,13 @@ export default function TradeAIPro() {
         const instMatch=[...instFlows.topBuy,...instFlows.topSell].find(s=>s.symbol===bareSym);
         return(
           <MW title={`${sym} · ${getStockName(sym)}`}>
-            {realSyms?.has(sym)?(
-              <div className="flex items-center gap-1.5 mb-3 text-[9px] text-emerald-400"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"/>真實報價（永豐即時資料）</div>
+            {realSyms?.has(sym)&&realChartSyms?.has(sym)?(
+              <div className="flex items-center gap-1.5 mb-3 text-[9px] text-emerald-400"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"/>真實報價＋真實圖表（永豐即時資料）</div>
+            ):realSyms?.has(sym)?(
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-[10px] text-amber-400">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0"/>
+                <span>現價是永豐真實報價，但下面的圖表抓不到真實歷史資料，目前是亂數模擬畫出來的（時間軸對不上實際交易時段也是這個原因）——現價可以參考，圖表/RSI不能當真。</span>
+              </div>
             ):(
               <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-[10px] text-amber-400">
                 <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0"/>
