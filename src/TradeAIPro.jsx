@@ -526,6 +526,7 @@ export default function TradeAIPro() {
   useEffect(()=>{ const iv=setInterval(()=>setNowTick(Date.now()),5000); return()=>clearInterval(iv); },[]);
   const [autoCapPct, setAutoCapPct] = useState(()=>{ try{ return Number(localStorage.getItem("autoCapPct")||100); }catch{ return 100; } }); // AI自動交易可用資金%
   const [paperCapInput, setPaperCapInput] = useState("10000000"); // 模擬資金輸入框，預設1000萬
+  const [feeDiscountInput, setFeeDiscountInput] = useState("6"); // 手續費折扣輸入框，單位「折」(6=6折)，預設值之後會被後端真實設定值蓋過
   const [backendAuto, setBackendAuto] = useState({enabled:false,status:null,log:[],loading:false}); // 後端24h自動交易 // 風控護盾
   const [tradeChartCache, setTradeChartCache] = useState({}); // {symbol: {bars, loading, error}} — 點交易紀錄查看當時K線用，跟自選股charts分開避免被wl清理邏輯誤刪
   const [backendPaperMode, setBackendPaperMode] = useState(()=>{
@@ -1541,6 +1542,37 @@ export default function TradeAIPro() {
         <div className="text-[9px] text-gray-700 mt-2 leading-relaxed">
           這筆資金完全獨立於你的真實永豐帳戶，不會被真實帳戶的待交割款卡住——模擬模式的部位大小用這個算，目的是讓你能在不受真實資金限制的情況下，跑出足夠多筆模擬交易做驗證。
           平倉獲利會像真實交易一樣計入這個總額（已扣手續費+證交稅），且一樣遵守T+2交割規則：剛平倉的錢要等2個交易日後才會變成「可用」，不會立刻又能拿來開新倉。
+        </div>
+      </Card>
+      <Card cls="p-4">
+        <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-3">手續費折扣設定</div>
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <div className="text-[9px] text-gray-600 mb-1">目前設定</div>
+            <div className="text-sm font-mono font-bold text-white">{(Number(backendAuto.status?.fee_discount??0.6)*10).toFixed(1)}折</div>
+          </div>
+          <div>
+            <div className="text-[9px] text-gray-600 mb-1">至少要漲跌多少%才划算</div>
+            <div className="text-sm font-mono font-bold text-cyan-400">{((Number(backendAuto.status?.fee_discount??0.6)*0.1425*2+0.15)).toFixed(3)}%</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <input type="number" min={0.1} max={10} step={0.1} value={feeDiscountInput}
+            onChange={e=>setFeeDiscountInput(e.target.value)} placeholder="例如 6（代表6折）"
+            className="flex-1 bg-[#0a1622] border border-[#0d2137] rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/40"/>
+          <span className="text-[10px] text-gray-600">折</span>
+          <button onClick={async()=>{
+            const v=Number(feeDiscountInput);
+            if(!v||v<=0||v>10){alert("請輸入0~10之間的折數，例如6折就填6");return;}
+            try{
+              const r=await fetch("/api/sinopac?path=auto/fee-discount",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({discount:v/10})});
+              if(r.ok) alert(`手續費折扣已設定為${v}折`);
+              else { const d=await r.json(); alert(d.detail||"設定失敗"); }
+            }catch{ alert("設定失敗，請檢查網路連線"); }
+          }} className="px-4 py-2 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold">套用</button>
+        </div>
+        <div className="text-[9px] text-gray-700 mt-2 leading-relaxed">
+          每個人跟永豐談到的實際折扣不一樣（從1折到完全沒折扣都有），這個數字會直接影響所有損益試算的準確度——設得跟你實際拿到的折扣不一樣，模擬驗證的數字就會系統性偏離真實情況。可以在永豐的對帳單或營業員那邊確認自己實際的折扣是多少。
         </div>
       </Card>
       <Card cls="p-4">
