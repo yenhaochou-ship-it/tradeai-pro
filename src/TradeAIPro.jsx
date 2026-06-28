@@ -55,6 +55,7 @@ const FUNNEL_LABELS={
   limit_down_risk:"接近跌停風險",
   vwap_reject:"VWAP方向不符(價格在VWAP下方)",
   wide_spread:"買賣價差過寬(超過2個跳動單位)，進出場成本太高",
+  extreme_recent_move:"近5分鐘漲跌幅過大(可能觸及集合競價鎖死風險)",
   no_model:"LightGBM模型未載入或預測失敗",
   low_confidence:"信心度未達風險等級門檻",
   sector_dup:"同板塊已有持倉",
