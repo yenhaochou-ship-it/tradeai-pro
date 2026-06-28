@@ -1055,6 +1055,34 @@ export default function TradeAIPro() {
           </Card>
         </div>
 
+        {/* 最大回撤/年化報酬率：從每日收盤權益曲線算出來，不是即時數字(每天14:30盤後記錄一筆) */}
+        {(()=>{
+          const pm=beStat.performance_metrics;
+          if(!pm?.available) return(
+            <Card onClick={()=>setTab("records")} cls="p-3">
+              <div className="text-[9px] text-gray-600 text-center py-1">最大回撤／年化報酬率：{pm?.reason||"還沒有足夠的權益曲線資料（每天收盤後14:30才會記錄一筆，至少要跑滿2個交易日）"}</div>
+            </Card>
+          );
+          return(
+            <div className="grid grid-cols-2 gap-3">
+              <Card onClick={()=>setModal({type:"perfMetricsDetail"})} cls="p-4">
+                <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">最大回撤</div>
+                <div className={`text-2xl font-mono font-bold ${pm.max_drawdown_pct<=5?"text-emerald-400":pm.max_drawdown_pct<=15?"text-amber-400":"text-red-400"}`}>-{pm.max_drawdown_pct.toFixed(2)}%</div>
+                <div className="text-[9px] text-gray-600 mt-1">歷史高點到低點的最大跌幅</div>
+              </Card>
+              <Card onClick={()=>setModal({type:"perfMetricsDetail"})} cls="p-4">
+                <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2 flex items-center gap-1">
+                  年化報酬率{!pm.is_annualized_reliable&&<AlertTriangle className="w-3 h-3 text-amber-400"/>}
+                </div>
+                <div className={`text-2xl font-mono font-bold ${!pm.is_annualized_reliable?"text-gray-600":pm.annualized_return_pct>=0?"text-emerald-400":"text-red-400"}`}>
+                  {pm.annualized_return_pct>=0?"+":""}{pm.annualized_return_pct?.toFixed(1)}%
+                </div>
+                <div className="text-[9px] text-gray-600 mt-1">{pm.is_annualized_reliable?`累積${pm.trading_days}個交易日，外推估計`:"樣本太少，先別當真"}</div>
+              </Card>
+            </div>
+          );
+        })()}
+
         {/* Auto status */}
         <Card onClick={()=>setTab("auto")} cls="p-3">
           <div className="flex items-center justify-between mb-2">
@@ -1959,6 +1987,36 @@ export default function TradeAIPro() {
               <button onClick={()=>{setBackendPaperMode(true);setModal(null);}} className="w-full py-3 bg-cyan-500/15 border border-cyan-500/40 text-cyan-400 rounded-xl text-sm font-bold">繼續用模擬模式累積驗證</button>
               <button onClick={()=>{setModal(null);startBackendAuto(true);}} className="w-full py-2.5 bg-red-500/10 border border-red-500/25 text-red-400 rounded-xl text-sm font-bold">我了解風險，強制啟動真實下單</button>
               <button onClick={()=>setModal(null)} className="w-full py-2 bg-[#070f1c] border border-[#0d2137] text-gray-500 rounded-xl text-sm font-bold">取消</button>
+            </div>
+          </MW>
+        );
+      }
+      case "perfMetricsDetail": {
+        const pm=backendAuto.status?.performance_metrics;
+        if(!pm?.available) return(
+          <MW title="績效指標">
+            <div className="text-center py-8 text-gray-600 text-xs">{pm?.reason||"還沒有足夠的權益曲線資料"}</div>
+          </MW>
+        );
+        return(
+          <MW title="績效指標明細">
+            {!pm.is_annualized_reliable&&(
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-[10px] text-amber-400">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0"/>
+                <span>{pm.reliability_note}</span>
+              </div>
+            )}
+            <Row l="累積交易日數" v={`${pm.trading_days}天`}/>
+            <Row l="起始權益" v={`NT$${Number(pm.start_equity).toLocaleString()}`}/>
+            <Row l="目前權益" v={`NT$${Number(pm.end_equity).toLocaleString()}`}/>
+            <Row l="累積總報酬率" v={`${pm.total_return_pct>=0?"+":""}${pm.total_return_pct}%`} c={pm.total_return_pct>=0?"text-emerald-400":"text-red-400"}/>
+            <Row l="年化報酬率(外推估計)" v={`${pm.annualized_return_pct>=0?"+":""}${pm.annualized_return_pct}%`} c={!pm.is_annualized_reliable?"text-gray-500":pm.annualized_return_pct>=0?"text-emerald-400":"text-red-400"}/>
+            <Row l="最大回撤" v={`-${pm.max_drawdown_pct}%`} c="text-red-400"/>
+            <Row l="回撤區間" v={`${pm.max_drawdown_peak_date} → ${pm.max_drawdown_trough_date}`}/>
+            <div className="text-[9px] text-gray-700 mt-3 leading-relaxed space-y-1.5">
+              <div>· 這些數字每天收盤後14:30記錄一筆當天的帳戶總值，累積成權益曲線算出來的，不是即時數字，當天盤中不會變動。</div>
+              <div>· 年化報酬率是用複利公式把目前累積的報酬率外推成「一年的話會是多少」——交易日數越少，這個外推越不可靠，可能被單一好/壞日子放大到失真，至少累積20個交易日後才值得認真參考。</div>
+              <div>· 最大回撤是這段期間帳戶價值從某個歷史高點，到之後最深跌到哪裡的跌幅，不是只看頭尾兩天。</div>
             </div>
           </MW>
         );
