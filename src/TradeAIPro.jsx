@@ -1700,27 +1700,43 @@ export default function TradeAIPro() {
                 <Row l="帳號" v={"****"+aid.slice(-4)} c="text-cyan-400"/>
               </>);
             })()}
-            {broker.balance && <>
-              <Row l="帳戶餘額" v={`NT$${Number(broker.balance.balance||0).toLocaleString()}`}/>
-              <Row l="可用資金" v={`NT$${Number(broker.balance.available||0).toLocaleString()}`} c="text-cyan-400"/>
-              {broker.balance.pending_settlement>0&&(
-                <Row l="待交割金額(T+2)" v={`-NT$${Number(broker.balance.pending_settlement).toLocaleString()}`} c="text-amber-400"/>
-              )}
-              {broker.balance.available_after_settlement!=null&&(
-                <Row l="當沖可用資金" v={`NT$${Number(broker.balance.available_after_settlement).toLocaleString()}`} c="text-emerald-400"/>
-              )}
-              {Array.isArray(broker.balance.settlement_schedule)&&broker.balance.settlement_schedule.length>0&&(
-                <div className="mt-2 pt-2 border-t border-[#0d2137]">
-                  <div className="text-[9px] text-gray-600 mb-1.5">交割明細（哪天會交割多少錢）</div>
-                  {broker.balance.settlement_schedule.map((s,i)=>(
-                    <div key={i} className="flex justify-between text-[10px] py-1">
-                      <span className="text-gray-500">{s.date}</span>
-                      <span className="text-amber-400 font-mono">NT${Number(s.amount).toLocaleString()}</span>
-                    </div>
-                  ))}
+            {(()=>{
+              // 修正：原本這整塊只用broker.balance(連線那一刻fetch一次，之後永遠不會更新，除非
+              // 整個斷線重連)，但後端其實每5分鐘會自動重新同步一次資金(_refresh_capital_from_account)，
+              // 存在auto_state["capital_info"]裡，跟著/auto/status每30秒一起傳到前端——改成優先用
+              // 這個會自動跟著變新鮮的資料，沒有的話才退回連線時那次的舊快照，並且明確標示資料新鮮度，
+              // 不要讓人看著一個可能已經過時的數字卻不知道。
+              const ci=backendAuto.status?.capital_info||broker.balance;
+              if(!ci) return null;
+              const syncedAgo=ci.synced_at?Math.floor((Date.now()/1000)-ci.synced_at):null;
+              return(<>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[8px] text-gray-700">{syncedAgo==null?"資料時間未知(連線時的快照)":syncedAgo<300?`資金資料更新於${syncedAgo}秒前`:`⚠️ 資金資料已${Math.floor(syncedAgo/60)}分鐘未更新`}</span>
+                  <button onClick={async()=>{
+                    try{const r=await fetch("/api/sinopac?path=account");const d=await r.json();if(r.ok) setBroker(b=>({...b,balance:d}));}catch{}
+                  }} className="text-[8px] text-gray-600 hover:text-cyan-400 flex items-center gap-1"><RefreshCw className="w-2.5 h-2.5"/>重新整理</button>
                 </div>
-              )}
-            </>}
+                <Row l="帳戶餘額" v={`NT$${Number(ci.balance||0).toLocaleString()}`}/>
+                <Row l="可用資金" v={`NT$${Number(ci.available||0).toLocaleString()}`} c="text-cyan-400"/>
+                {ci.pending_settlement>0&&(
+                  <Row l="待交割金額(T+2)" v={`-NT$${Number(ci.pending_settlement).toLocaleString()}`} c="text-amber-400"/>
+                )}
+                {ci.available_after_settlement!=null&&(
+                  <Row l="當沖可用資金" v={`NT$${Number(ci.available_after_settlement).toLocaleString()}`} c="text-emerald-400"/>
+                )}
+                {Array.isArray(ci.settlement_schedule)&&ci.settlement_schedule.length>0&&(
+                  <div className="mt-2 pt-2 border-t border-[#0d2137]">
+                    <div className="text-[9px] text-gray-600 mb-1.5">交割明細（哪天會交割多少錢）</div>
+                    {ci.settlement_schedule.map((s,i)=>(
+                      <div key={i} className="flex justify-between text-[10px] py-1">
+                        <span className="text-gray-500">{s.date}</span>
+                        <span className="text-amber-400 font-mono">NT${Number(s.amount).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>);
+            })()}
             {(()=>{
               const pmr=backendAuto.status?.performance_metrics_real;
               if(!pmr) return null;
