@@ -1726,13 +1726,14 @@ export default function TradeAIPro() {
                 )}
                 {Array.isArray(ci.settlement_schedule)&&ci.settlement_schedule.length>0&&(
                   <div className="mt-2 pt-2 border-t border-[#0d2137]">
-                    <div className="text-[9px] text-gray-600 mb-1.5">交割明細（哪天會交割多少錢）</div>
+                    <div className="text-[9px] text-gray-600 mb-1.5">交割明細（哪天會收付多少錢）</div>
                     {ci.settlement_schedule.map((s,i)=>(
                       <div key={i} className="flex justify-between text-[10px] py-1">
-                        <span className="text-gray-500">{s.date}</span>
-                        <span className="text-amber-400 font-mono">NT${Number(s.amount).toLocaleString()}</span>
+                        <span className="text-gray-500">{s.date} <span className={s.type==="payable"?"text-amber-400":"text-emerald-400"}>{s.type==="payable"?"應付":"應收"}</span></span>
+                        <span className={`font-mono ${s.type==="payable"?"text-amber-400":"text-emerald-400"}`}>{s.type==="payable"?"-":"+"}NT${Number(s.amount).toLocaleString()}</span>
                       </div>
                     ))}
+                    <div className="text-[8px] text-gray-700 mt-1.5">應付＝買進還沒扣款的錢(會減少可用資金)；應收＝賣出還沒入帳的錢(尚未到帳，暫時還不能動用)</div>
                   </div>
                 )}
               </>);
@@ -2125,9 +2126,9 @@ export default function TradeAIPro() {
             <Row l="現價" v={`NT$${Number(p.current_price||0).toFixed(2)}`}/>
             <Row l="目前市值" v={`NT$${Number(p.value||0).toLocaleString(undefined,{maximumFractionDigits:0})}`} c="text-cyan-400"/>
             <div className="text-[9px] text-gray-700 mt-3 leading-relaxed">
-              損益計算：{Number(p.quantity||0).toLocaleString()}股 ×（現價NT${Number(p.current_price||0).toFixed(2)} − 均價NT${Number(p.avg_price||0).toFixed(2)}）{isLong?"":"（做空方向相反）"} = {(p.pnl||0)>=0?"+":""}NT${Number(p.pnl||0).toLocaleString(undefined,{maximumFractionDigits:0})}
+              損益百分比是用永豐回報的損益金額／買進總成本反推出來的，跟損益金額一定互相對得上。
             </div>
-            <div className="text-[9px] text-gray-700 mt-1 leading-relaxed">這是永豐真實帳戶的庫存損益，不含買進時已付出的手續費（永豐持倉資料本身不含這筆），實際入袋金額會比這裡顯示的數字再扣一點交易成本。</div>
+            <div className="text-[9px] text-gray-700 mt-1 leading-relaxed">這是永豐真實帳戶回報的庫存損益。實測發現這個金額跟「股數×(現價−均價)」單純算出來的價差會有一點差距(這筆是NT${Math.round(p.quantity*(p.current_price-p.avg_price)*(isLong?1:-1)).toLocaleString()})，可能是永豐內部已經考慮了成本等其他因素，目前無法100%確定差距的確切原因，僅供參考。</div>
           </MW>
         );
       }
