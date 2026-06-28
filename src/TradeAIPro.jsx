@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ComposedChart, Area, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { RefreshCw, X, Activity, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, AlertCircle, Lightbulb, Clock } from "lucide-react";
+import { RefreshCw, X, Activity, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, AlertCircle, Lightbulb, Clock, Check } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════
 // DESIGN TOKENS — Obsidian / Cyber Terminal
@@ -539,6 +539,17 @@ export default function TradeAIPro() {
   }); // 後端24h自動交易模式：true=模擬下單(用真實股價算損益,不花真錢)，false=真實下單
   useEffect(()=>{ try{ localStorage.setItem("backend_paper_mode",String(backendPaperMode)); }catch{} },[backendPaperMode]);
   const [realPos,   setRealPos]   = useState([]); // 永豐真實持倉（連線後從後端取得）
+  const [refreshState, setRefreshState] = useState({}); // {balance:"idle"|"loading"|"done", positions:"idle"|"loading"|"done"} — 給重新整理按鈕的轉圈圈/打勾動畫用
+  const doRefresh = useCallback(async (key, path, onData) => {
+    setRefreshState(s=>({...s,[key]:"loading"}));
+    try{
+      const r=await fetch(`/api/sinopac?path=${path}`);
+      const d=await r.json();
+      if(r.ok) onData(d);
+    }catch{}
+    setRefreshState(s=>({...s,[key]:"done"}));
+    setTimeout(()=>setRefreshState(s=>({...s,[key]:"idle"})),1200); // 打勾顯示1.2秒後恢復成平常的「重新整理」文字
+  },[]);
   const [realBases, setRealBases] = useState({}); // {sym: price} 使用者新增股票的真實起始報價
   const [realNames, setRealNames] = useState(()=>{ try{ return JSON.parse(localStorage.getItem("real_names")||"{}"); }catch{ return {}; } }); // {sym: 真實中文名稱}，來自永豐合約資料，補足內建清單沒有的股票
   useEffect(()=>{ try{ localStorage.setItem("real_names",JSON.stringify(realNames)); }catch{}; realNamesCache=realNames; },[realNames]);
@@ -1712,9 +1723,14 @@ export default function TradeAIPro() {
               return(<>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[8px] text-gray-700">{syncedAgo==null?"資料時間未知(連線時的快照)":syncedAgo<300?`資金資料更新於${syncedAgo}秒前`:`⚠️ 資金資料已${Math.floor(syncedAgo/60)}分鐘未更新`}</span>
-                  <button onClick={async()=>{
-                    try{const r=await fetch("/api/sinopac?path=account");const d=await r.json();if(r.ok) setBroker(b=>({...b,balance:d}));}catch{}
-                  }} className="text-[8px] text-gray-600 hover:text-cyan-400 flex items-center gap-1"><RefreshCw className="w-2.5 h-2.5"/>重新整理</button>
+                  <button onClick={()=>doRefresh("balance","account",d=>setBroker(b=>({...b,balance:d})))}
+                    disabled={refreshState.balance==="loading"}
+                    className="text-[8px] text-gray-600 hover:text-cyan-400 flex items-center gap-1 disabled:opacity-60">
+                    {refreshState.balance==="loading"?<RefreshCw className="w-2.5 h-2.5 animate-spin"/>
+                      :refreshState.balance==="done"?<Check className="w-2.5 h-2.5 text-emerald-400"/>
+                      :<RefreshCw className="w-2.5 h-2.5"/>}
+                    {refreshState.balance==="done"?"已更新":"重新整理"}
+                  </button>
                 </div>
                 <Row l="帳戶餘額" v={`NT$${Number(ci.balance||0).toLocaleString()}`}/>
                 <Row l="可用資金" v={`NT$${Number(ci.available||0).toLocaleString()}`} c="text-cyan-400"/>
@@ -1774,9 +1790,14 @@ export default function TradeAIPro() {
         <Card cls="p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="text-[9px] text-gray-600 uppercase tracking-wider">真實持倉</div>
-            <button onClick={async()=>{
-              try{const r=await fetch("/api/sinopac?path=positions");const d=await r.json();if(r.ok&&Array.isArray(d))setRealPos(d);}catch{}
-            }} className="text-[9px] text-gray-600 hover:text-cyan-400 flex items-center gap-1"><RefreshCw className="w-3 h-3"/>重新整理</button>
+            <button onClick={()=>doRefresh("positions","positions",d=>{if(Array.isArray(d)) setRealPos(d);})}
+              disabled={refreshState.positions==="loading"}
+              className="text-[9px] text-gray-600 hover:text-cyan-400 flex items-center gap-1 disabled:opacity-60">
+              {refreshState.positions==="loading"?<RefreshCw className="w-3 h-3 animate-spin"/>
+                :refreshState.positions==="done"?<Check className="w-3 h-3 text-emerald-400"/>
+                :<RefreshCw className="w-3 h-3"/>}
+              {refreshState.positions==="done"?"已更新":"重新整理"}
+            </button>
           </div>
           {realPos.length===0?(
             <div className="text-[10px] text-gray-600 text-center py-4">無持倉 / 點擊重新整理</div>
