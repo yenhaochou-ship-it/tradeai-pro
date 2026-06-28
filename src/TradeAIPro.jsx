@@ -1733,6 +1733,14 @@ export default function TradeAIPro() {
         const instMatch=[...instFlows.topBuy,...instFlows.topSell].find(s=>s.symbol===bareSym);
         return(
           <MW title={`${sym} · ${getStockName(sym)}`}>
+            {realSyms?.has(sym)?(
+              <div className="flex items-center gap-1.5 mb-3 text-[9px] text-emerald-400"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"/>真實報價（永豐即時資料）</div>
+            ):(
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-[10px] text-amber-400">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0"/>
+                <span>目前是模擬數據（亂數產生），不是這檔股票的真實報價——可能還沒連線，或這檔股票剛好抓不到真實資料。下面圖表跟指標都不能當真。</span>
+              </div>
+            )}
             {instMatch&&(
               <div className={`flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border text-[10px] ${instMatch.total>=0?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":"bg-red-500/10 border-red-500/25 text-red-400"}`}>
                 <span className="font-bold flex items-center gap-1">{instMatch.total>=0?<TrendingUp className="w-3 h-3"/>:<TrendingDown className="w-3 h-3"/>}{instMatch.total>=0?"三大法人買超":"三大法人賣超"}</span>
@@ -1758,10 +1766,10 @@ export default function TradeAIPro() {
             </ResponsiveContainer>
             <div className="mt-4 space-y-0">
               <Row l="RSI" v={cd.length<30?"資料累積中...":sig.rsi?.toFixed(1)??"—"} c={sig.rsi<30?"text-emerald-400":sig.rsi>70?"text-red-400":"text-gray-300"}/>
-              <Row l="AI信心" v={`${sig.conf}%`} c="text-violet-400"/>
+              <Row l="技術指標信心" v={`${sig.conf}%`} c="text-violet-400"/>
               <Row l="產業" v={STOCKS[sym]?.sector||TW_NAMES[sym.replace(".TW","")]?"台灣股票":"—"}/>
             </div>
-            <div className="text-[9px] text-gray-700 text-center mt-4 py-2 border-t border-[#0d2137]">實際進出場交給「自動交易」分頁的AI判斷，這裡只看指標</div>
+            <div className="text-[9px] text-gray-700 text-center mt-4 py-2 border-t border-[#0d2137]">這是RSI/MACD等規則式技術指標分數，不是後端LightGBM的判斷——實際進出場交給「自動交易」分頁的AI判斷，這裡只看指標</div>
           </MW>
         );
       }
@@ -1774,7 +1782,7 @@ export default function TradeAIPro() {
             <Row l="MA方向" v={sig.ma5!=null&&sig.ma20!=null?(sig.ma5>sig.ma20?"多頭排列":"空頭排列"):"計算中..."} c={sig.ma5>sig.ma20?"text-emerald-400":"text-red-400"}/>
             <Row l="MACD" v={sig.action==="buy"?"金叉":sig.action==="sell"?"死叉":"中性"} c={sig.action==="buy"?"text-emerald-400":sig.action==="sell"?"text-red-400":"text-gray-400"}/>
             <Row l="量比" v={sig.volRatio!=null?`${sig.volRatio.toFixed(2)}x`:"計算中..."} c={sig.volRatio>1.5?"text-amber-400":"text-gray-300"}/>
-            <Row l="AI信心" v={`${sig.conf}%`} c="text-violet-400"/>
+            <Row l="技術指標信心" v={`${sig.conf}%`} c="text-violet-400"/>
             <Row l="綜合信號" v={sig.action==="buy"?"買進▲":sig.action==="sell"?"賣出▼":"觀望"} c={sig.action==="buy"?"text-emerald-400":sig.action==="sell"?"text-red-400":"text-gray-400"}/>
           </MW>
         );
