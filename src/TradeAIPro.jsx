@@ -1721,6 +1721,33 @@ export default function TradeAIPro() {
                 </div>
               )}
             </>}
+            {(()=>{
+              const pmr=backendAuto.status?.performance_metrics_real;
+              if(!pmr) return null;
+              if(!pmr.available) return(
+                <div className="mt-2 pt-2 border-t border-[#0d2137] text-[9px] text-gray-600">
+                  真實帳戶績效指標：{pmr.reason||"還沒有足夠的權益曲線資料"}（要切換成真實下單後才會開始累積）
+                </div>
+              );
+              return(
+                <div onClick={()=>setModal({type:"perfMetricsDetail",data:{mode:"real"}})} className="mt-2 pt-2 border-t border-[#0d2137] cursor-pointer">
+                  <div className="text-[9px] text-gray-600 mb-1.5">真實帳戶績效指標（{pmr.trading_days}個交易日）</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="text-[8px] text-gray-600">最大回撤</div>
+                      <div className="text-xs font-mono font-bold text-red-400">-{pmr.max_drawdown_pct}%</div>
+                    </div>
+                    <div>
+                      <div className="text-[8px] text-gray-600 flex items-center gap-1">年化報酬率{!pmr.is_annualized_reliable&&<AlertTriangle className="w-2.5 h-2.5 text-amber-400"/>}</div>
+                      <div className={`text-xs font-mono font-bold ${!pmr.is_annualized_reliable?"text-gray-500":pmr.annualized_return_pct>=0?"text-emerald-400":"text-red-400"}`}>
+                        {pmr.annualized_return_pct>=0?"+":""}{pmr.annualized_return_pct}%
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-[8px] text-gray-700 mt-1">點擊查看完整明細（含Sharpe/Calmar比率）</div>
+                </div>
+              );
+            })()}
             <button onClick={disconnectBroker} className="w-full py-2 bg-red-500/10 border border-red-500/25 text-red-400 rounded-lg text-xs font-bold mt-3">中斷連接</button>
           </div>
         )}
@@ -2014,15 +2041,18 @@ export default function TradeAIPro() {
         );
       }
       case "perfMetricsDetail": {
-        const pm=backendAuto.status?.performance_metrics;
-        const pv2=backendAuto.status?.paper_validation_progress;
+        const reqMode=data?.mode;
+        const pm=reqMode==="real"?backendAuto.status?.performance_metrics_real
+                :reqMode==="paper"?backendAuto.status?.performance_metrics_paper
+                :backendAuto.status?.performance_metrics;
+        const pv2=reqMode==="real"?null:backendAuto.status?.paper_validation_progress;  // 逐筆交易統計目前只追蹤模擬交易，真實模式底下不該顯示(避免誤把模擬數字當成真實帳戶的統計)
         if(!pm?.available) return(
-          <MW title="績效指標">
+          <MW title={reqMode==="real"?"真實帳戶績效指標":"績效指標"}>
             <div className="text-center py-8 text-gray-600 text-xs">{pm?.reason||"還沒有足夠的權益曲線資料"}</div>
           </MW>
         );
         return(
-          <MW title="績效指標明細">
+          <MW title={reqMode==="real"?"真實帳戶績效指標明細":reqMode==="paper"?"模擬帳戶績效指標明細":"績效指標明細"}>
             {!pm.is_annualized_reliable&&(
               <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-[10px] text-amber-400">
                 <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0"/>
