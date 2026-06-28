@@ -57,6 +57,7 @@ const FUNNEL_LABELS={
   unaffordable:"資金不足，買不起1張",
   daily_cap_reached:"已達當日3筆交易上限",
   per_tick_cap_reached:"已達單次週期2檔新倉上限",
+  order_failed:"委託被永豐拒絕或送出失敗(資金不足/股票被暫停交易等)",
 };
 const GRADE_STYLE={
   S:"bg-amber-500/15 text-amber-400 border-amber-500/25",
