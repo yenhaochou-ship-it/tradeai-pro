@@ -1019,6 +1019,28 @@ export default function TradeAIPro() {
             </div>
           </div>
         )}
+        {beStat.drawdown_halt&&(
+          <div className="bg-red-500/15 border border-red-500/40 rounded-xl p-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5"/>
+              <div className="flex-1">
+                <div className="text-sm font-bold text-red-400">⚠️ 累積回撤保護已觸發，已停止開新倉</div>
+                <div className="text-[10px] text-red-300/80 mt-0.5">
+                  估計權益較歷史高點(NT${Number(beStat.drawdown_halt_info?.peak_equity||0).toLocaleString()})回撤{beStat.drawdown_halt_info?.drawdown_pct}%。
+                  現有持倉仍會正常出場，但不會再開新倉，需要手動確認後才會恢復——這不是單日虧損，是這段時間累積下來的，建議先檢視一下發生了什麼再決定。
+                </div>
+              </div>
+            </div>
+            <button onClick={async()=>{
+              if(!confirm("確定要解除回撤保護、恢復開新倉嗎？建議先確認過原因再繼續。")) return;
+              try{
+                const r=await fetch("/api/sinopac?path=auto/resume-after-drawdown",{method:"POST"});
+                if(r.ok) alert("已解除回撤保護");
+                else alert("解除失敗，請稍後再試");
+              }catch{ alert("解除失敗，請檢查網路連線"); }
+            }} className="w-full mt-2 py-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-xs font-bold">我已檢視過原因，解除保護並恢復開新倉</button>
+          </div>
+        )}
         {beStat.lgbm_model&&!beStat.lgbm_model.loaded&&(
           <div onClick={()=>setTab("strategy")} className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-2 cursor-pointer">
             <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5"/>
@@ -1993,6 +2015,7 @@ export default function TradeAIPro() {
       }
       case "perfMetricsDetail": {
         const pm=backendAuto.status?.performance_metrics;
+        const pv2=backendAuto.status?.paper_validation_progress;
         if(!pm?.available) return(
           <MW title="績效指標">
             <div className="text-center py-8 text-gray-600 text-xs">{pm?.reason||"還沒有足夠的權益曲線資料"}</div>
@@ -2006,6 +2029,7 @@ export default function TradeAIPro() {
                 <span>{pm.reliability_note}</span>
               </div>
             )}
+            <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2 mt-1">權益曲線指標</div>
             <Row l="累積交易日數" v={`${pm.trading_days}天`}/>
             <Row l="起始權益" v={`NT$${Number(pm.start_equity).toLocaleString()}`}/>
             <Row l="目前權益" v={`NT$${Number(pm.end_equity).toLocaleString()}`}/>
@@ -2013,10 +2037,23 @@ export default function TradeAIPro() {
             <Row l="年化報酬率(外推估計)" v={`${pm.annualized_return_pct>=0?"+":""}${pm.annualized_return_pct}%`} c={!pm.is_annualized_reliable?"text-gray-500":pm.annualized_return_pct>=0?"text-emerald-400":"text-red-400"}/>
             <Row l="最大回撤" v={`-${pm.max_drawdown_pct}%`} c="text-red-400"/>
             <Row l="回撤區間" v={`${pm.max_drawdown_peak_date} → ${pm.max_drawdown_trough_date}`}/>
+            <Row l="Sharpe比率" v={pm.sharpe_ratio??"—"} c={!pm.is_annualized_reliable?"text-gray-500":pm.sharpe_ratio>=1?"text-emerald-400":"text-amber-400"}/>
+            <Row l="Calmar比率" v={pm.calmar_ratio??"—"} c={!pm.is_annualized_reliable?"text-gray-500":"text-violet-400"}/>
+            {pv2&&(
+              <>
+                <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2 mt-4">逐筆交易統計</div>
+                <Row l="期望值(平均每筆賺賠)" v={`${pv2.expectancy_per_trade>=0?"+":""}NT$${pv2.expectancy_per_trade}`} c={pv2.expectancy_per_trade>=0?"text-emerald-400":"text-red-400"}/>
+                <Row l="單筆最大獲利" v={`+NT$${pv2.largest_win_pnl}`} c="text-emerald-400"/>
+                <Row l="單筆最大虧損" v={`NT$${pv2.largest_loss_pnl}`} c="text-red-400"/>
+                <Row l="最長連勝" v={`${pv2.max_win_streak}筆`}/>
+                <Row l="最長連敗" v={`${pv2.max_loss_streak}筆`}/>
+                <Row l="平均持倉時間" v={`${pv2.avg_held_min}分鐘`}/>
+              </>
+            )}
             <div className="text-[9px] text-gray-700 mt-3 leading-relaxed space-y-1.5">
-              <div>· 這些數字每天收盤後14:30記錄一筆當天的帳戶總值，累積成權益曲線算出來的，不是即時數字，當天盤中不會變動。</div>
-              <div>· 年化報酬率是用複利公式把目前累積的報酬率外推成「一年的話會是多少」——交易日數越少，這個外推越不可靠，可能被單一好/壞日子放大到失真，至少累積20個交易日後才值得認真參考。</div>
-              <div>· 最大回撤是這段期間帳戶價值從某個歷史高點，到之後最深跌到哪裡的跌幅，不是只看頭尾兩天。</div>
+              <div>· 權益曲線指標每天收盤後14:30記錄一筆當天的帳戶總值算出來，不是即時數字，當天盤中不會變動。逐筆交易統計則是每筆交易平倉時就累積，比較即時。</div>
+              <div>· 年化報酬率/Sharpe/Calmar都依賴同一個複利外推，交易日數越少越不可靠，可能被單一好/壞日子放大到失真，至少累積20個交易日後才值得認真參考。</div>
+              <div>· 最大回撤是這段期間帳戶價值從某個歷史高點，到之後最深跌到哪裡的跌幅，不是只看頭尾兩天。期望值是判斷策略好壞更直接的數字——勝率高但期望值是負的，代表小贏多次但偶爾大賠，整體還是賠錢。</div>
             </div>
           </MW>
         );
