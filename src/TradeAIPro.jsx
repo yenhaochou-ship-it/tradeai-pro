@@ -41,6 +41,10 @@ function getStockName(sym){ return realNamesCache[sym] || STOCKS[sym]?.name || T
 const FEE_RATE=0.001425, FEE_DISCOUNT=0.6, DAYTRADE_TAX=0.0015;
 const MIN_PROFITABLE_MOVE_PCT=(FEE_RATE*FEE_DISCOUNT*2+DAYTRADE_TAX)*100; // 約0.32%，當沖至少要漲跌這麼多才打平成本
 // 真實下單前的最低模擬驗證門檻（需與後端 main.py 的 PAPER_VALIDATION_MIN_* 保持一致，純粹是顯示用）
+// 修正：這兩個常數現在只當「後端還沒回應前」的暫時預設值，真正生效的數字一律從
+// backendAuto.status?.paper_validation_min_trades/min_days讀取(後端main.py才是唯一真相來源)，
+// 避免之前那種「前後端各自寫一份常數、手動保持一致」的脆弱做法——只要有人改了一邊忘記改另一邊，
+// 畫面顯示的門檻就會悄悄跟後端真正使用的門檻不一樣，沒有任何錯誤訊息會提示這個落差。
 const PAPER_VALIDATION_MIN_TRADES=20, PAPER_VALIDATION_MIN_DAYS=5;
 // 對應後端 advanced_score 的 Market Regime 分類，純顯示用的中文標籤
 const REGIME_LABEL={trending_bull:"多頭趨勢",trending_bear:"空頭趨勢",range:"區間盤整",volatile:"高波動",panic:"恐慌",unknown:"資料不足"};
@@ -1054,7 +1058,7 @@ export default function TradeAIPro() {
           </div>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div><div className="text-[9px] text-gray-600">持倉中</div><div className="text-xs font-mono font-bold text-white">{(beStat.positions||[]).length}筆</div></div>
-            <div><div className="text-[9px] text-gray-600">模擬驗證</div><div className="text-xs font-mono font-bold text-violet-400">{pv?.trade_count||0}/{PAPER_VALIDATION_MIN_TRADES}筆</div></div>
+            <div><div className="text-[9px] text-gray-600">模擬驗證</div><div className="text-xs font-mono font-bold text-violet-400">{pv?.trade_count||0}/{(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)}筆</div></div>
             <div onClick={e=>{e.stopPropagation();setModal({type:"funnelDetail"});}} className="cursor-pointer"><div className="text-[9px] text-gray-600">今日掃描</div><div className="text-xs font-mono font-bold text-cyan-400 underline decoration-dotted">{beStat.funnel?.scanned||0}次</div></div>
           </div>
         </Card>
@@ -1203,10 +1207,10 @@ export default function TradeAIPro() {
               const totalWin=pv.total_win_pnl||0, totalLoss=pv.total_loss_pnl||0;
               const pf = totalLoss!==0 ? (totalWin/Math.abs(totalLoss)) : (totalWin>0?Infinity:0);
               const winRate = (wins+losses)>0 ? (wins/(wins+losses)*100) : 0;
-              const ready=trades>=PAPER_VALIDATION_MIN_TRADES&&days>=PAPER_VALIDATION_MIN_DAYS;
+              const ready=trades>=(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)&&days>=(backendAuto.status?.paper_validation_min_days??PAPER_VALIDATION_MIN_DAYS);
               return(
                 <div className={`mb-3 text-[10px] px-3 py-2 rounded-lg border ${ready?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":"bg-amber-500/10 border-amber-500/25 text-amber-400"}`}>
-                  <div>模擬驗證進度：{trades}/{PAPER_VALIDATION_MIN_TRADES}筆 · {days}/{PAPER_VALIDATION_MIN_DAYS}天
+                  <div>模擬驗證進度：{trades}/{(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)}筆 · {days}/{(backendAuto.status?.paper_validation_min_days??PAPER_VALIDATION_MIN_DAYS)}天
                   {ready?" ✓ 已達門檻，可切換真實下單":" — 未達門檻前啟動會被擋下（可強制跳過，但不建議）"}</div>
                   {(wins+losses)>0&&(
                     <div className="mt-1 text-[9px] opacity-80">
@@ -1340,7 +1344,7 @@ export default function TradeAIPro() {
     const pf2=totalLoss!==0?(totalWin/Math.abs(totalLoss)):(totalWin>0?Infinity:0);
     const winRate=(wins+losses)>0?(wins/(wins+losses)*100):0;
     const avgWin=wins>0?(pv.win_pct_sum||0)/wins:0, avgLoss=losses>0?(pv.loss_pct_sum||0)/losses:0;
-    const ready=trades>=PAPER_VALIDATION_MIN_TRADES&&days>=PAPER_VALIDATION_MIN_DAYS;
+    const ready=trades>=(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)&&days>=(backendAuto.status?.paper_validation_min_days??PAPER_VALIDATION_MIN_DAYS);
     return(
       <div className="space-y-3">
         {/* 累積驗證統計：跨天不清空，這才是判斷「這套系統20筆跑完後到底行不行」的數據 */}
@@ -1348,7 +1352,7 @@ export default function TradeAIPro() {
           <div className="flex items-center justify-between mb-3">
             <div className="text-[9px] text-gray-600 uppercase tracking-wider">累積驗證統計（跨天，不會每日清空）</div>
             <Chip c={ready?"border-emerald-500/30 text-emerald-400 bg-emerald-500/10":"border-amber-500/30 text-amber-400 bg-amber-500/10"}>
-              {trades}/{PAPER_VALIDATION_MIN_TRADES}筆 · {days}/{PAPER_VALIDATION_MIN_DAYS}天
+              {trades}/{(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)}筆 · {days}/{(backendAuto.status?.paper_validation_min_days??PAPER_VALIDATION_MIN_DAYS)}天
             </Chip>
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -1470,7 +1474,7 @@ export default function TradeAIPro() {
         {backendAuto.status?.lgbm_model&&!backendAuto.status.lgbm_model.loaded&&(
           <div className="text-[9px] text-red-400/80 mt-1.5 leading-relaxed">{backendAuto.status.lgbm_model.error}</div>
         )}
-        <Row l="驗證狀態" v={backendAuto.status?.paper_validation?.trade_count>=PAPER_VALIDATION_MIN_TRADES?"已達20筆門檻":"模擬驗證中"} c="text-amber-400"/>
+        <Row l="驗證狀態" v={backendAuto.status?.paper_validation?.trade_count>=(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)?"已達20筆門檻":"模擬驗證中"} c="text-amber-400"/>
         <div className="text-[9px] text-gray-700 mt-2 leading-relaxed">沒有訓練好的模型檔案時，後端會誠實地不進場，不會悄悄退回舊規則——這是刻意設計，避免在不知情的情況下用未驗證的邏輯下單。</div>
       </Card>
       <Card cls="p-4">
@@ -1553,7 +1557,7 @@ export default function TradeAIPro() {
           </div>
           <div>
             <div className="text-[9px] text-gray-600 mb-1">至少要漲跌多少%才划算</div>
-            <div className="text-sm font-mono font-bold text-cyan-400">{((Number(backendAuto.status?.fee_discount??0.6)*0.1425*2+0.15)).toFixed(3)}%</div>
+            <div className="text-sm font-mono font-bold text-cyan-400">{Number(backendAuto.status?.min_profitable_move_pct??0.321).toFixed(3)}%</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -1934,8 +1938,8 @@ export default function TradeAIPro() {
               <div className="flex justify-center mb-3"><ShieldCheck className="w-9 h-9 text-amber-400"/></div>
               <div className="text-sm font-bold text-amber-400 mb-3">尚未達到真實下單的最低模擬驗證門檻</div>
               <div className="text-[11px] text-gray-400 leading-relaxed text-left bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 space-y-1.5">
-                <div>· 模擬交易筆數：{pv.trades??0} / {pv.min_trades??PAPER_VALIDATION_MIN_TRADES} 筆</div>
-                <div>· 跨越交易日數：{pv.days??0} / {pv.min_days??PAPER_VALIDATION_MIN_DAYS} 天</div>
+                <div>· 模擬交易筆數：{pv.trades??0} / {pv.min_trades??(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)} 筆</div>
+                <div>· 跨越交易日數：{pv.days??0} / {pv.min_days??(backendAuto.status?.paper_validation_min_days??PAPER_VALIDATION_MIN_DAYS)} 天</div>
                 {pv.profit_factor!==undefined&&(pv.trades??0)>0&&(
                   <div>· 目前累積：勝率{pv.win_rate??0}% · 獲利因子{pv.profit_factor===null||pv.profit_factor===Infinity?"∞":pv.profit_factor} (&gt;1.5算及格)</div>
                 )}
@@ -2101,7 +2105,7 @@ export default function TradeAIPro() {
           const stats=beConnected?[
             {l:"資產(後端)",v:`NT$${(beAssets/1e3).toFixed(1)}K`,c:"text-white",click:()=>setTab("auto")},
             {l:"今日(後端)",v:`${beDayPnL>=0?"+":""}NT$${F(beDayPnL,0)}`,c:CC(beDayPnL),click:()=>setTab("auto")},
-            {l:"模擬驗證",v:pv?`${pv.trade_count||0}/${PAPER_VALIDATION_MIN_TRADES}筆`:"—",c:"text-violet-400",click:()=>setTab("records")},
+            {l:"模擬驗證",v:pv?`${pv.trade_count||0}/${(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)}筆`:"—",c:"text-violet-400",click:()=>setTab("records")},
             {l:"勝率(後端)",v:`${beWinRate}%`,c:beWinRate>=75?"text-emerald-400":beWinRate>=60?"text-amber-400":"text-red-400",click:()=>setTab("records")},
           ]:[
             {l:"資產",v:"—",c:"text-gray-600",click:()=>setTab("system")},
