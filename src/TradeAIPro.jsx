@@ -765,7 +765,7 @@ function TradeAIProApp() {
         wl.map(async sym=>{
           const r=await apiFetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
           const d=await r.json();
-          if(!r.ok) throw new Error(d.detail||"查詢失敗");
+          if(!r.ok) throw new Error(d.detail||`查詢失敗(HTTP ${r.status})`);
           return{sym,...d};
         })
       );
@@ -779,6 +779,13 @@ function TradeAIProApp() {
           updates[sym]={price:Number(price),chg:Number(change),pct:Number(change_percent)};
           if(name) nameUpdates[sym]=name; // 永豐回傳的真實中文名稱
           markReal(sym); // 標記為真實報價來源，停用該股的亂數模擬跳動
+        }else if(r.status==="rejected"){
+          // 修正：原本這裡完全不記錄失敗原因，使用者只會看到畫面上顯示「模擬」標籤，
+          // 完全不知道是代號打錯(例如00631L少打一個0變成0631L)、現在不是交易時段、
+          // 還是後端/永豐連線真的有問題——印到console讓人可以按F12查看到底卡在哪一種。
+          console.warn(`[價格查詢失敗] ${sym}:`, r.reason?.message||r.reason);
+        }else if(r.status==="fulfilled"&&!r.value.price){
+          console.warn(`[價格查詢] ${sym}: 後端回應成功但沒有price欄位`, r.value);
         }
       });
       if(Object.keys(nameUpdates).length>0){
