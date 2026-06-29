@@ -1595,6 +1595,41 @@ function TradeAIProApp() {
         {backendAuto.status?.lgbm_model&&!backendAuto.status.lgbm_model.loaded&&(
           <div className="text-[9px] text-red-400/80 mt-1.5 leading-relaxed">{backendAuto.status.lgbm_model.error}</div>
         )}
+        {(() => {
+          // 訓練時(train_lgbm_model.py)存的AUC/準確率等中繼資料——這個功能上線前訓練的模型沒有
+          // 這份檔案，meta會是null/undefined，這裡用「沒有記錄」表示，不要顯示成錯誤或0。
+          const meta = backendAuto.status?.lgbm_model?.meta;
+          if (!meta) return (
+            <div className="text-[9px] text-gray-700 mt-1.5">目前模型沒有AUC等訓練記錄（這個功能上線前訓練的模型不會有，重新訓練一次就會有）</div>
+          );
+          const trainedDate = meta.trained_at ? new Date(meta.trained_at).toLocaleString("zh-TW",{hour12:false}) : "—";
+          return (
+            <div className="mt-1.5 pt-2 border-t border-[#0d2137] space-y-0">
+              <Row l="訓練時間" v={trainedDate}/>
+              <Row l="驗證集AUC" v={`${meta.auc?.toFixed(3) ?? "—"}（0.5瞎猜/0.55~0.65算有用）`}
+                   c={meta.auc>=0.55?"text-emerald-400":meta.auc>=0.5?"text-amber-400":"text-red-400"}/>
+              <Row l="準確率" v={meta.accuracy!=null?`${(meta.accuracy*100).toFixed(1)}%`:"—"}/>
+              <Row l="訓練樣本數" v={meta.n_samples!=null?`${meta.n_samples.toLocaleString()}筆（正樣本${meta.positive_ratio!=null?(meta.positive_ratio*100).toFixed(1):"—"}%）`:"—"}/>
+              <Row l="資料範圍" v={`${meta.days??"—"}天 · ${meta.n_symbols??"—"}檔股票`}/>
+              {meta.old_auc!=null&&(
+                <Row l="跟上一版比較" v={`${meta.auc_diff>=0?"+":""}${meta.auc_diff?.toFixed(3)}（舊${meta.old_auc?.toFixed(3)} → 新${meta.auc?.toFixed(3)}）`}
+                     c={meta.auc_diff>=0?"text-emerald-400":meta.auc_diff<-0.02?"text-red-400":"text-amber-400"}/>
+              )}
+              {meta.real_data_used&&<Row l="真實交易資料" v="✅ 這次訓練合併使用了真實交易紀錄" c="text-cyan-400"/>}
+              {Array.isArray(meta.feature_importance)&&meta.feature_importance.length>0&&(
+                <div className="mt-2">
+                  <div className="text-[9px] text-gray-600 mb-1">特徵重要性前5項</div>
+                  {meta.feature_importance.slice(0,5).map(([name,imp])=>(
+                    <div key={name} className="flex items-center justify-between text-[10px] py-0.5">
+                      <span className="text-gray-400">{name}</span>
+                      <span className="text-violet-400 font-mono">{imp}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <Row l="驗證狀態" v={backendAuto.status?.paper_validation?.trade_count>=(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)?"已達20筆門檻":"模擬驗證中"} c="text-amber-400"/>
         <div className="text-[9px] text-gray-700 mt-2 leading-relaxed">沒有訓練好的模型檔案時，後端會誠實地不進場，不會悄悄退回舊規則——這是刻意設計，避免在不知情的情況下用未驗證的邏輯下單。</div>
       </Card>
