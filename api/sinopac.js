@@ -40,6 +40,21 @@ export default async function handler(req, res) {
       body: req.method !== 'GET' ? JSON.stringify(req.body) : undefined,
     });
 
+    // 修正：原本不管後端回什麼都直接呼叫response.json()——但像CSV匯出這種端點回的是
+    // text/csv，不是JSON，呼叫.json()會直接拋例外，被下面的catch接住，使用者看到的是
+    // 「後端連接失敗」這種誤導訊息，而不是真正的CSV內容。改成先看Content-Type，
+    // 不是JSON就原樣轉發bytes跟原始的Content-Type/Content-Disposition(下載檔名靠這個)，
+    // 不要硬塞進JSON。
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const buf = Buffer.from(await response.arrayBuffer());
+      res.status(response.status);
+      res.setHeader('Content-Type', contentType || 'application/octet-stream');
+      const disposition = response.headers.get('content-disposition');
+      if (disposition) res.setHeader('Content-Disposition', disposition);
+      return res.send(buf);
+    }
+
     const data = await response.json();
 
     if (!response.ok) {

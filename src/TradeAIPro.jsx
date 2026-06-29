@@ -963,6 +963,35 @@ function TradeAIProApp() {
     setBroker(b=>({...b,status:"disconnected",account:null,balance:null,error:null}));
   },[]);
 
+  // ── SHAP特徵紀錄CSV下載 ──────────────────────────────────────────
+  // 修正：原本是純<a href="/api/sinopac?path=...">直接導覽下載，瀏覽器導覽沒辦法附加
+  // x-app-password這個自訂header(只有JS的fetch才能附加)，加了App密碼門之後這個下載
+  // 一定會被擋成401「密碼錯誤或未提供」——改成用apiFetch(會自動附帶密碼)抓成blob，
+  // 再用一個暫時的<a>元素+URL.createObjectURL觸發瀏覽器存檔對話框，效果跟原本一樣，
+  // 但這次有帶到密碼。
+  const [downloadingLog,setDownloadingLog]=useState(false);
+  const [downloadLogError,setDownloadLogError]=useState(null);
+  const downloadFeatureLog = useCallback(async()=>{
+    setDownloadingLog(true); setDownloadLogError(null);
+    try{
+      const r=await apiFetch("/api/sinopac?path=auto/feature_log.csv");
+      if(!r.ok){
+        const errText=await r.text().catch(()=>"下載失敗");
+        throw new Error(errText.slice(0,200));
+      }
+      const blob=await r.blob();
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url; a.download="paper_test_data.csv";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }catch(e){
+      setDownloadLogError(e.message||"下載失敗，請確認連線");
+    }finally{
+      setDownloadingLog(false);
+    }
+  },[]);
+
   // ── 後端24h自動交易控制 ────────────────────────────────────────
   // 點交易紀錄查看當時K線：抓真實歷史K棒(後端/history端點)，跟自選股的charts分開存，
   // 因為股票池選到的標的(如2801)通常不在使用者自選股清單wl裡，charts的清理邏輯只認wl，混在一起容易被誤刪
@@ -1571,10 +1600,11 @@ function TradeAIProApp() {
           <Card cls="p-4">
             <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">特徵歸因分析(SHAP)原始資料</div>
             <div className="text-[9px] text-gray-600 leading-relaxed mb-3">每筆交易進場時餵給LightGBM的完整特徵向量+結果，跨天累積。驗證期跑完後可下載這份CSV，用analyze_shap.py分析哪些特徵真的有用。</div>
-            <a href="/api/sinopac?path=auto/feature_log.csv" target="_blank" rel="noreferrer"
-              className="w-full py-2.5 bg-violet-500/10 border border-violet-500/25 text-violet-400 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5">
-              <FileText className="w-3.5 h-3.5"/>下載 paper_test_data.csv
-            </a>
+            <button onClick={downloadFeatureLog} disabled={downloadingLog}
+              className="w-full py-2.5 bg-violet-500/10 border border-violet-500/25 text-violet-400 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-50">
+              <FileText className="w-3.5 h-3.5"/>{downloadingLog?"下載中...":"下載 paper_test_data.csv"}
+            </button>
+            {downloadLogError&&<div className="text-[9px] text-red-400 mt-1.5">{downloadLogError}</div>}
           </Card>
         )}
       </div>
