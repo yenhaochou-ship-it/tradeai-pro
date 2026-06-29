@@ -1082,7 +1082,7 @@ function TradeAIProApp() {
     const beAssets=beConnected?(isPaper?N(beStat.paper_capital):N(beStat.capital))+N(beStat.daily_pnl):null;
     const beDayPnL=beConnected?N(beStat.daily_pnl):null;
     const beWinRate=beConnected?(beStat.daily_trades>0?+(beStat.daily_win/beStat.daily_trades*100).toFixed(1):0):null;
-    const wins=pv?.wins||0, losses=pv?.losses||0;
+    const wins=pv?.wins||0, losses=pv?.losses||0, breakeven=pv?.breakeven||0;
     const totalWin=pv?.total_win_pnl||0, totalLoss=pv?.total_loss_pnl||0;
     const pf2=totalLoss!==0?(totalWin/Math.abs(totalLoss)):(totalWin>0?Infinity:0);
 
@@ -1159,7 +1159,7 @@ function TradeAIProApp() {
           <Card onClick={()=>setTab("records")} cls="p-4">
             <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">累積勝率</div>
             <div className={`text-2xl font-mono font-bold ${beWinRate>=60?"text-emerald-400":beWinRate>=45?"text-amber-400":"text-red-400"}`}>{beWinRate}%</div>
-            <div className="text-[9px] text-gray-600 mt-1">{wins}勝{losses}敗（驗證期累積）</div>
+            <div className="text-[9px] text-gray-600 mt-1">{wins}勝{losses}敗{breakeven>0?`${breakeven}平`:""}（驗證期累積）</div>
           </Card>
           <Card onClick={()=>setTab("records")} cls="p-4">
             <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-2">獲利因子</div>
@@ -1356,13 +1356,16 @@ function TradeAIProApp() {
               const wins=pv.wins||0, losses=pv.losses||0;
               const totalWin=pv.total_win_pnl||0, totalLoss=pv.total_loss_pnl||0;
               const pf = totalLoss!==0 ? (totalWin/Math.abs(totalLoss)) : (totalWin>0?Infinity:0);
-              const winRate = (wins+losses)>0 ? (wins/(wins+losses)*100) : 0;
+              // 修正：分母改成trades(完整已平倉筆數)，不是wins+losses——pnl剛好打平的交易
+              // 既不算贏也不算輸，原本的wins+losses分母會悄悄縮小，跟畫面上「X/20筆」的X對不起來，
+              // 看起來像「1筆已完成卻0勝0敗」這種矛盾畫面，其實是分母被悄悄縮小造成的。
+              const winRate = trades>0 ? (wins/trades*100) : 0;
               const ready=trades>=(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)&&days>=(backendAuto.status?.paper_validation_min_days??PAPER_VALIDATION_MIN_DAYS);
               return(
                 <div className={`mb-3 text-[10px] px-3 py-2 rounded-lg border ${ready?"bg-emerald-500/10 border-emerald-500/25 text-emerald-400":"bg-amber-500/10 border-amber-500/25 text-amber-400"}`}>
                   <div>模擬驗證進度：{trades}/{(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)}筆 · {days}/{(backendAuto.status?.paper_validation_min_days??PAPER_VALIDATION_MIN_DAYS)}天
                   {ready?" ✓ 已達門檻，可切換真實下單":" — 未達門檻前啟動會被擋下（可強制跳過，但不建議）"}</div>
-                  {(wins+losses)>0&&(
+                  {trades>0&&(
                     <div className="mt-1 text-[9px] opacity-80">
                       累積勝率{winRate.toFixed(0)}% · 獲利因子{pf===Infinity?"∞":pf.toFixed(2)}(&gt;1.5算及格) · 平均贏{(pv.win_pct_sum&&wins?pv.win_pct_sum/wins:0).toFixed(2)}% 平均輸{(pv.loss_pct_sum&&losses?pv.loss_pct_sum/losses:0).toFixed(2)}%
                     </div>
@@ -1489,10 +1492,12 @@ function TradeAIProApp() {
   const RecordsTab = () => {
     const pv=backendAuto.status?.paper_validation;
     const trades=pv?.trade_count||0, days=(pv?.trading_days||[]).length;
-    const wins=pv?.wins||0, losses=pv?.losses||0;
+    const wins=pv?.wins||0, losses=pv?.losses||0, breakeven=pv?.breakeven||0;
     const totalWin=pv?.total_win_pnl||0, totalLoss=pv?.total_loss_pnl||0;
     const pf2=totalLoss!==0?(totalWin/Math.abs(totalLoss)):(totalWin>0?Infinity:0);
-    const winRate=(wins+losses)>0?(wins/(wins+losses)*100):0;
+    // 修正：分母改成trades，理由跟上面同一個修正一樣——pnl打平的交易不該讓wins+losses這個
+    // 分母悄悄縮小，導致畫面顯示「1/20筆」卻「累積勝率0%、0勝0敗」這種矛盾(使用者實際回報過)。
+    const winRate=trades>0?(wins/trades*100):0;
     const avgWin=wins>0?(pv.win_pct_sum||0)/wins:0, avgLoss=losses>0?(pv.loss_pct_sum||0)/losses:0;
     const ready=trades>=(backendAuto.status?.paper_validation_min_trades??PAPER_VALIDATION_MIN_TRADES)&&days>=(backendAuto.status?.paper_validation_min_days??PAPER_VALIDATION_MIN_DAYS);
     return(
@@ -1509,7 +1514,7 @@ function TradeAIProApp() {
             <div className="bg-[#0a1422] rounded-lg p-3 text-center">
               <div className="text-[9px] text-gray-600 mb-1">累積勝率</div>
               <div className={`text-xl font-mono font-bold ${winRate>=60?"text-emerald-400":winRate>=45?"text-amber-400":"text-red-400"}`}>{winRate.toFixed(0)}%</div>
-              <div className="text-[8px] text-gray-700 mt-0.5">{wins}勝{losses}敗</div>
+              <div className="text-[8px] text-gray-700 mt-0.5">{wins}勝{losses}敗{breakeven>0?`${breakeven}平`:""}</div>
             </div>
             <div className="bg-[#0a1422] rounded-lg p-3 text-center">
               <div className="text-[9px] text-gray-600 mb-1">獲利因子</div>
