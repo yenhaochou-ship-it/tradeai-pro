@@ -365,7 +365,7 @@ function Chip({children,c="border-cyan-500/30 text-cyan-400 bg-cyan-500/10"}) {
 }
 
 // ── ◎ 市場頁（含搜尋輸入框）— 提升至頂層保持元件身分穩定 ──────
-function MarketTab({live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,onRealPrice,realBases,wlSyncError,realSyms}) {
+function MarketTab({live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,onRealPrice,realBases,wlSyncError,realSyms,realChartSyms}) {
   const [realQuote,setRealQuote]=useState(null); // {sym, price, loading, error}
   // ── 手機向左滑刪除自選股 ──────────────────────────────────────
   const [swipeX,setSwipeX]=useState({});      // {sym: 目前位移px}
@@ -453,6 +453,10 @@ function MarketTab({live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,o
         {wl.map((sym,i)=>{
           const info=STOCKS[sym]||{name:getStockName(sym),base:realBases[sym]||0};
           const l=live[sym]||{}, sp=sparks[sym]||[], s=sigs[sym]||{action:"hold",conf:50};
+          // 這檔股票不是內建的故意模擬demo(STOCKS)，但圖表還沒拿到真實歷史資料——
+          // 不管報價(現價)是不是真的，這種情況下sigs[sym]是calcSignal()吃假K棒算出來的，
+          // 訊號箭頭不該裝得跟真的一樣自信(這正是使用者回報「信號從來沒準過」的根源)。
+          const chartIsFake = !STOCKS[sym] && !realChartSyms?.has(sym);
           const offset=swipeX[sym]||0;
           return(
             <div key={sym} className={`relative overflow-hidden ${i<wl.length-1?"border-b border-[#0d2137]":""}`}>
@@ -492,8 +496,9 @@ function MarketTab({live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,o
                   <div className="text-xs font-mono font-bold text-white">{N(l.price,info.base).toFixed(2)}</div>
                   <div className={`text-[9px] ${CC(l.pct)}`}>{N(l.pct)>=0?"▲":"▼"}{Math.abs(N(l.pct)).toFixed(2)}%</div>
                 </div>
-                <div className={`text-[9px] w-7 text-center font-bold flex-shrink-0 ${s.action==="buy"?"text-emerald-400":s.action==="sell"?"text-red-400":"text-gray-700"}`}>
-                  {s.action==="buy"?"▲":s.action==="sell"?"▼":"─"}
+                <div className={`text-[9px] w-7 text-center font-bold flex-shrink-0 ${chartIsFake?"text-gray-700":s.action==="buy"?"text-emerald-400":s.action==="sell"?"text-red-400":"text-gray-700"}`}
+                  title={chartIsFake?"圖表是模擬資料，訊號暫不可信":""}>
+                  {chartIsFake?"┄":s.action==="buy"?"▲":s.action==="sell"?"▼":"─"}
                 </div>
               </div>
             </div>
@@ -1941,6 +1946,11 @@ function TradeAIProApp() {
         const{sym,lp,sig}=data; const cd=charts[sym]||[];
         const bareSym=sym.replace(".TW","").replace(".TWO","");
         const instMatch=[...instFlows.topBuy,...instFlows.topSell].find(s=>s.symbol===bareSym);
+        // 圖表是不是真的(STOCKS內建demo股票除外，那種本來就是設計成模擬，不算「壞掉」)。
+        // 修正：原本警示banner講「圖表/RSI不能當真」，但banner下面幾行的信號/RSI/信心度
+        // 還是照樣印出一個看起來很篤定的數字跟箭頭，等於講了等於沒講——這裡讓那幾個數字
+        // 真的跟著banner誠實起來，圖表是假的就不要裝得像真的算出來的一樣。
+        const chartIsFake = !STOCKS[sym] && !realChartSyms?.has(sym);
         return(
           <MW title={`${sym} · ${getStockName(sym)}`}>
             {realSyms?.has(sym)&&realChartSyms?.has(sym)?(
@@ -1948,12 +1958,12 @@ function TradeAIProApp() {
             ):realSyms?.has(sym)?(
               <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-[10px] text-amber-400">
                 <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0"/>
-                <span>現價是永豐真實報價，但下面的圖表抓不到真實歷史資料，目前是亂數模擬畫出來的（時間軸對不上實際交易時段也是這個原因）——現價可以參考，圖表/RSI不能當真。</span>
+                <span>現價是永豐真實報價，但下面的圖表抓不到真實歷史資料，目前是亂數模擬畫出來的（時間軸對不上實際交易時段也是這個原因）——現價可以參考，圖表/RSI/信號都不能當真，下面已經改成顯示「資料不足」而不是假裝算出一個數字。系統每60秒會自動重試抓真實資料，抓到就會自動換成真的。</span>
               </div>
             ):(
               <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-[10px] text-amber-400">
                 <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0"/>
-                <span>目前是模擬數據（亂數產生），不是這檔股票的真實報價——可能還沒連線，或這檔股票剛好抓不到真實資料。下面圖表跟指標都不能當真。</span>
+                <span>目前是模擬數據（亂數產生），不是這檔股票的真實報價——可能還沒連線，或這檔股票剛好抓不到真實資料。下面圖表跟指標都不能當真，已改成顯示「資料不足」。</span>
               </div>
             )}
             {instMatch&&(
@@ -1962,8 +1972,12 @@ function TradeAIProApp() {
                 <span className="ml-auto font-mono">{instMatch.total>=0?"+":""}{Math.round(instMatch.total/1000)}張（{instFlows.date}）</span>
               </div>
             )}
+            {instMatch&&(
+              <div className="text-[9px] text-gray-600 leading-relaxed mb-3">三大法人買賣超是「整天的籌碼面」資料，來自證交所昨日/今日盤後公告；信號是「即時技術面」算出來的短線方向——兩者時間尺度跟看的東西本來就不一樣，就算都是真實資料，也常常對不上(法人偏多、短線技術偏空，或反過來，都正常)，不代表系統矛盾或算錯。</div>
+            )}
             <div className="grid grid-cols-3 gap-2 mb-4">
-              {[{l:"現價",v:`NT$${N(lp.price).toFixed(2)}`,c:"text-white"},{l:"漲跌",v:`${N(lp.pct)>=0?"+":""}${N(lp.pct).toFixed(2)}%`,c:CC(lp.pct)},{l:"信號",v:sig.action==="buy"?"買▲":sig.action==="sell"?"賣▼":"觀",c:sig.action==="buy"?"text-emerald-400":sig.action==="sell"?"text-red-400":"text-gray-500"}].map(x=>(
+              {[{l:"現價",v:`NT$${N(lp.price).toFixed(2)}`,c:"text-white"},{l:"漲跌",v:`${N(lp.pct)>=0?"+":""}${N(lp.pct).toFixed(2)}%`,c:CC(lp.pct)},
+                {l:"信號",v:chartIsFake?"資料不足":sig.action==="buy"?"買▲":sig.action==="sell"?"賣▼":"觀",c:chartIsFake?"text-gray-600":sig.action==="buy"?"text-emerald-400":sig.action==="sell"?"text-red-400":"text-gray-500"}].map(x=>(
                 <div key={x.l} className="bg-[#070f1c] border border-[#0d2137] rounded-xl p-2.5 text-center">
                   <div className="text-[9px] text-gray-600 mb-1">{x.l}</div>
                   <div className={`text-sm font-mono font-bold ${x.c}`}>{x.v}</div>
@@ -1979,9 +1993,10 @@ function TradeAIProApp() {
                 <Area type="monotone" dataKey="price" stroke="#22d3ee" fill="url(#mg)" strokeWidth={1.5} dot={false}/>
               </ComposedChart>
             </ResponsiveContainer>
+            {chartIsFake&&<div className="text-[8px] text-amber-400/70 text-center mt-1">↑ 這張圖是模擬的，曲線形狀沒有意義</div>}
             <div className="mt-4 space-y-0">
-              <Row l="RSI" v={cd.length<30?"資料累積中...":sig.rsi?.toFixed(1)??"—"} c={sig.rsi<30?"text-emerald-400":sig.rsi>70?"text-red-400":"text-gray-300"}/>
-              <Row l="技術指標信心" v={`${sig.conf}%`} c="text-violet-400"/>
+              <Row l="RSI" v={chartIsFake?"資料不足":cd.length<30?"資料累積中...":sig.rsi?.toFixed(1)??"—"} c={chartIsFake?"text-gray-600":sig.rsi<30?"text-emerald-400":sig.rsi>70?"text-red-400":"text-gray-300"}/>
+              <Row l="技術指標信心" v={chartIsFake?"—":`${sig.conf}%`} c={chartIsFake?"text-gray-600":"text-violet-400"}/>
               <Row l="產業" v={STOCKS[sym]?.sector||TW_NAMES[sym.replace(".TW","")]?"台灣股票":"—"}/>
             </div>
             <div className="text-[9px] text-gray-700 text-center mt-4 py-2 border-t border-[#0d2137]">這是RSI/MACD等規則式技術指標分數，不是後端LightGBM的判斷——實際進出場交給「自動交易」分頁的AI判斷，這裡只看指標</div>
@@ -2340,7 +2355,7 @@ function TradeAIProApp() {
       {/* ── Content ── */}
       <div className="px-4 py-4 pb-28">
         {tab==="overview" && OverviewTab()}
-        {tab==="market"   && <MarketTab live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} broker={broker} realBases={realBases} onRealPrice={(sym,price)=>setRealBases(b=>({...b,[sym]:price}))} wlSyncError={wlSyncError} realSyms={realSyms}/>}
+        {tab==="market"   && <MarketTab live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} broker={broker} realBases={realBases} onRealPrice={(sym,price)=>setRealBases(b=>({...b,[sym]:price}))} wlSyncError={wlSyncError} realSyms={realSyms} realChartSyms={realChartSyms}/>}
         {tab==="auto"     && AutoTab()}
         {tab==="records"  && RecordsTab()}
         {tab==="strategy" && StrategyTab()}
