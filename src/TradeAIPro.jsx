@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ComposedChart, Area, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { RefreshCw, X, Activity, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, AlertCircle, Lightbulb, Clock, Check } from "lucide-react";
+import { RefreshCw, X, Activity, Zap, TrendingUp, TrendingDown, Search, Plus, RotateCcw, Link2, ShieldCheck, AlertTriangle, FileText, Flame, AlertCircle, Lightbulb, Clock, Check, Lock } from "lucide-react";
+import { apiFetch, getAppPassword, setAppPassword, clearAppPassword } from "./apiClient";
 
 // ═══════════════════════════════════════════════════════════════
 // DESIGN TOKENS — Obsidian / Cyber Terminal
@@ -385,7 +386,7 @@ function MarketTab({live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,o
     if(!sym||broker?.status!=="connected") return;
     setRealQuote({sym,price:null,loading:true,error:null});
     try{
-      const r=await fetch(`/api/sinopac?path=price/${sym}`);
+      const r=await apiFetch(`/api/sinopac?path=price/${sym}`);
       const d=await r.json();
       if(r.ok){
         setRealQuote({sym,price:d.price||d.close||d.last||null,loading:false,error:null});
@@ -504,11 +505,64 @@ function MarketTab({live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,o
   );
 }
 
+// ── 🔒 App密碼門：保護/api/sinopac這個Vercel function不被外人直接呼叫 ──────
+// 背景：這個proxy原本完全公開，任何人知道網址就能直接呼叫(包含對你的真實帳戶下指令)。
+// 現在api/sinopac.js會檢查這個密碼(環境變數APP_PASSWORD)，這裡只是讓使用者輸入一次、
+// 存起來、之後每次apiFetch自動附帶——沒設定APP_PASSWORD的話後端會放行任何輸入，
+// 所以即使是本機開發沒設定密碼，這裡也只是「輸入隨便什麼、按一次」就會通過，不會卡住。
+function PasswordGate({ children }) {
+  const [unlocked, setUnlocked] = useState(()=>!!getAppPassword());
+  const [input, setInput] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [err, setErr] = useState("");
+
+  if (unlocked) return children;
+
+  const submit = async () => {
+    if (!input.trim() || checking) return;
+    setChecking(true); setErr("");
+    setAppPassword(input.trim());
+    try {
+      const r = await apiFetch("/api/sinopac?path=health");
+      if (r.status === 401) {
+        clearAppPassword();
+        setErr("密碼錯誤，請再試一次");
+      } else {
+        setUnlocked(true);
+      }
+    } catch {
+      setErr("連線失敗，請確認網路後再試一次");
+      clearAppPassword();
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#030b14] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-[#070f1c] border border-[#0d2137] rounded-2xl p-6">
+        <div className="flex items-center gap-2 mb-1"><Lock className="w-4 h-4 text-cyan-400"/><span className="text-white font-bold text-sm">TradeAI Pro</span></div>
+        <div className="text-gray-500 text-[11px] mb-4">請輸入應用程式密碼以繼續</div>
+        <input type="password" value={input} autoFocus
+          onChange={e=>{setInput(e.target.value); setErr("");}}
+          onKeyDown={e=>{ if(e.key==="Enter") submit(); }}
+          className="w-full bg-[#0a1622] border border-[#0d2137] rounded-lg px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/40 mb-3"
+          placeholder="密碼"/>
+        {err && <div className="text-red-400 text-[10px] mb-2">{err}</div>}
+        <button onClick={submit} disabled={checking||!input.trim()}
+          className="w-full py-2.5 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold disabled:opacity-50">
+          {checking ? "驗證中..." : "進入"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── ◉ 問答頁（含聊天輸入框）— 提升至頂層保持元件身分穩定 ──────
 // ═══════════════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════════════
-export default function TradeAIPro() {
+function TradeAIProApp() {
   const [tab,      setTab]      = useState("overview");
   const [modal,    setModal]    = useState(null);
   const [wl, setWl] = useState(()=>{
@@ -523,7 +577,7 @@ export default function TradeAIPro() {
   const [risk,     setRisk]     = useState("low");
   const [instFlows, setInstFlows] = useState({date:null,topBuy:[],topSell:[],loading:false}); // 三大法人真實買賣超（來源：台灣證交所公開資料）
   const [scanResults, setScanResults] = useState({results:[],updated:null,scanning:false,loading:false}); // 全市場飆股雷達掃描結果（後端真實技術指標排序）
-  const [broker,   setBroker]   = useState({status:"disconnected",apiKey:"",secretKey:"",account:null,balance:null,error:null}); // 永豐真實帳戶連接
+  const [broker,   setBroker]   = useState({status:"disconnected",account:null,balance:null,error:null}); // 永豐真實帳戶連接（金鑰已搬到後端環境變數，前端不再經手）
   const [wlSyncError, setWlSyncError] = useState(false); // 自選股同步到後端失敗時設true，不要讓使用者以為改了清單AI就看得到
   const [nowTick, setNowTick] = useState(Date.now()); // 純粹給「資料更新於X秒前」這類倒數計時用的活時鐘——
   // 不能只靠backendAuto變化觸發重渲染，因為萬一輪詢真的開始失敗，backendAuto根本不會再變，
@@ -543,7 +597,7 @@ export default function TradeAIPro() {
   const doRefresh = useCallback(async (key, path, onData) => {
     setRefreshState(s=>({...s,[key]:"loading"}));
     try{
-      const r=await fetch(`/api/sinopac?path=${path}`);
+      const r=await apiFetch(`/api/sinopac?path=${path}`);
       const d=await r.json();
       if(r.ok) onData(d);
     }catch{}
@@ -584,7 +638,7 @@ export default function TradeAIPro() {
     if(broker.status!=="connected") return;
     const poll=async()=>{
       try{
-        const r=await fetch("/api/sinopac?path=auto/status");
+        const r=await apiFetch("/api/sinopac?path=auto/status");
         const d=await r.json();
         // 記錄「最後一次成功拿到資料」的時間——如果後端整個process掛了(不只是排程卡住)，
         // 這個輪詢本身會開始失敗/timeout，下面的持倉清單要能誠實顯示「這是幾秒前的舊資料」，
@@ -599,17 +653,10 @@ export default function TradeAIPro() {
   // 自選股同步到後端（連線中且自選股有變動時）
   useEffect(()=>{
     if(broker.status!=="connected") return;
-    fetch("/api/sinopac?path=auto/watchlist",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(wl)})
+    apiFetch("/api/sinopac?path=auto/watchlist",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(wl)})
       .then(r=>setWlSyncError(!r.ok))
       .catch(()=>setWlSyncError(true));
   },[wl,broker.status]);
-  // 載入記住的帳密（頁面首次載入時還原，但不自動連接）
-  useEffect(()=>{
-    try{
-      const s=JSON.parse(localStorage.getItem("sinopac_creds")||"{}");
-      if(s.apiKey||s.secretKey) setBroker(b=>({...b,apiKey:s.apiKey||"",secretKey:s.secretKey||""}));
-    }catch{}
-  },[]);
 
   // ── Init ─────────────────────────────────────────────────────
   useEffect(()=>{
@@ -654,7 +701,7 @@ export default function TradeAIPro() {
   const fetchInstFlows = useCallback(async()=>{
     setInstFlows(s=>({...s,loading:true}));
     try{
-      const r=await fetch("/api/sinopac?path=institutional/flows?top=8");
+      const r=await apiFetch("/api/sinopac?path=institutional/flows?top=8");
       const d=await r.json();
       if(r.ok) setInstFlows({date:d.date,topBuy:d.top_buy||[],topSell:d.top_sell||[],loading:false});
       else setInstFlows(s=>({...s,loading:false}));
@@ -666,7 +713,7 @@ export default function TradeAIPro() {
   const fetchScanResults = useCallback(async()=>{
     setScanResults(s=>({...s,loading:true}));
     try{
-      const r=await fetch("/api/sinopac?path=scan/topstocks?top=5");
+      const r=await apiFetch("/api/sinopac?path=scan/topstocks?top=5");
       const d=await r.json();
       if(r.ok) setScanResults({results:d.results||[],updated:d.updated,scanning:d.scanning,loading:false});
       else setScanResults(s=>({...s,loading:false}));
@@ -687,7 +734,7 @@ export default function TradeAIPro() {
       const realSymsToRefresh=wl.filter(sym=>realSymR.current.has(sym)&&!STOCKS[sym]);
       if(realSymsToRefresh.length===0) return;
       const results=await Promise.allSettled(realSymsToRefresh.map(async sym=>{
-        const r=await fetch(`/api/sinopac?path=history/${encodeURIComponent(sym)}?bars=90`);
+        const r=await apiFetch(`/api/sinopac?path=history/${encodeURIComponent(sym)}?bars=90`);
         const d=await r.json();
         if(!r.ok||!d.bars||d.bars.length<20) throw new Error("no data");
         return{sym,bars:d.bars};
@@ -710,7 +757,7 @@ export default function TradeAIPro() {
     const fetchAll=async()=>{
       const results=await Promise.allSettled(
         wl.map(async sym=>{
-          const r=await fetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
+          const r=await apiFetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
           const d=await r.json();
           if(!r.ok) throw new Error(d.detail||"查詢失敗");
           return{sym,...d};
@@ -774,7 +821,7 @@ export default function TradeAIPro() {
         await Promise.all(missing.map(async sym=>{
           if(STOCKS[sym]?.base){ bases[sym]=STOCKS[sym].base; return; } // 美股/內建股票本來就有模擬基準，永豐無真實資料
           try{
-            const hr=await fetch(`/api/sinopac?path=history/${encodeURIComponent(sym)}?bars=90`);
+            const hr=await apiFetch(`/api/sinopac?path=history/${encodeURIComponent(sym)}?bars=90`);
             const hd=await hr.json();
             if(hr.ok&&hd.bars&&hd.bars.length>=20){
               realCharts[sym]=hd.bars;
@@ -786,7 +833,7 @@ export default function TradeAIPro() {
           // 沒有真實歷史K棒時，至少嘗試抓目前報價當基準（用於模擬圖表的起點，比預設100準確）
           if(bases[sym]==null){
             try{
-              const r=await fetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
+              const r=await apiFetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
               const d=await r.json();
               if(r.ok&&d.price){ bases[sym]=Number(d.price); markReal(sym); if(d.name) newNames[sym]=d.name; }
             }catch{}
@@ -842,49 +889,47 @@ export default function TradeAIPro() {
   // 光靠disabled={broker.status==="connecting"}這個畫面上的防呆，在自動連線生效跟手動點擊之間還是有
   // 一個小空窗可能讓兩邊都呼叫到，造成同一個/connect請求送兩次(後端OFI訂閱因此短時間內被呼叫兩次，
   // 第二次因為股票都已經訂閱過，迴圈裡直接continue跳過，回傳0/49成功，被log訊息誤判成「訂閱失敗」)。
+  // 修正：API Key/Secret Key已經搬到後端環境變數(SINOPAC_API_KEY/SINOPAC_SECRET_KEY)，
+  // 前端不再需要輸入/記住任何金鑰，連線只是單純呼叫/connect，後端自己決定用哪組金鑰登入。
   const connectBroker = useCallback(async()=>{
-    if(!broker.apiKey.trim()||!broker.secretKey.trim()){
-      setBroker(b=>({...b,error:"請輸入 API Key 與 Secret Key"})); return;
-    }
     if(connectingR.current) return;  // 已經有一次連線在進行中，直接忽略這次重複呼叫
     connectingR.current=true;
     setBroker(b=>({...b,status:"connecting",error:null}));
     try{
-      const r=await fetch("/api/sinopac?path=connect",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({api_key:broker.apiKey,secret_key:broker.secretKey})});
+      const r=await apiFetch("/api/sinopac?path=connect",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({})});
       const d=await r.json();
       if(!r.ok) throw new Error(d.detail||"連接失敗");
       setBroker(b=>({...b,status:"connected",account:d,error:null}));
-      // 記住帳密到 localStorage（不自動連接，只記住讓下次方便輸入）
-      try{ localStorage.setItem("sinopac_creds",JSON.stringify({apiKey:broker.apiKey,secretKey:broker.secretKey})); }catch{}
       // 取得帳戶餘額
       try{
-        const br=await fetch("/api/sinopac?path=account");
+        const br=await apiFetch("/api/sinopac?path=account");
         const bd=await br.json();
         if(br.ok) setBroker(b=>({...b,balance:bd}));
       }catch{}
       // 取得真實持倉
       try{
-        const pr=await fetch("/api/sinopac?path=positions");
+        const pr=await apiFetch("/api/sinopac?path=positions");
         const pd=await pr.json();
         if(pr.ok&&Array.isArray(pd)) setRealPos(pd);
       }catch{}
     }catch(e){
-      setBroker(b=>({...b,status:"disconnected",error:e.message||"連接失敗，請確認金鑰正確"}));
+      setBroker(b=>({...b,status:"disconnected",error:e.message||"連接失敗，請確認後端已設定 SINOPAC_API_KEY/SINOPAC_SECRET_KEY"}));
     }finally{
       connectingR.current=false;
     }
-  },[broker.apiKey,broker.secretKey]);
+  },[]);
 
-  // ── 自動連接：開啟網站時若已有記住的金鑰，直接自動連接永豐，不需手動再按一次 ──
+  // ── 自動連接：開啟網站就直接連永豐，不需要手動按一次——金鑰已經在後端環境變數裡，
+  //    前端永遠有東西可以連，不像以前要等使用者輸入完帳密才能連線 ──
   const autoConnectedR = useRef(false); // 確保整次瀏覽只自動嘗試一次，不會在使用者手動中斷連接後又被打擾
   useEffect(()=>{
     if(autoConnectedR.current) return;
-    if(broker.apiKey&&broker.secretKey&&broker.status==="disconnected"){
+    if(broker.status==="disconnected"){
       autoConnectedR.current=true;
       connectBroker();
     }
-  },[broker.apiKey,broker.secretKey,broker.status,connectBroker]);
+  },[broker.status,connectBroker]);
 
   // ── 修正手機背景切換問題：手機切到背景一段時間後，後端可能已重啟/重新部署，
   // 導致畫面顯示「已連接」但其實後端早已斷線（真實股價停止更新，要手動重連才會恢復）。
@@ -894,7 +939,7 @@ export default function TradeAIPro() {
       if(document.visibilityState!=="visible") return;
       if(brokerR.current?.status!=="connected") return;
       try{
-        const r=await fetch("/api/sinopac?path=health");
+        const r=await apiFetch("/api/sinopac?path=health");
         const d=await r.json();
         if(!r.ok||d.connected===false){
           // 後端已斷線（重啟導致），自動重新連接
@@ -908,7 +953,7 @@ export default function TradeAIPro() {
   },[]);
 
   const disconnectBroker = useCallback(async()=>{
-    try{ await fetch("/api/sinopac?path=disconnect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})}); }catch{}
+    try{ await apiFetch("/api/sinopac?path=disconnect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})}); }catch{}
     setBroker(b=>({...b,status:"disconnected",account:null,balance:null,error:null}));
   },[]);
 
@@ -920,7 +965,7 @@ export default function TradeAIPro() {
     if(tradeChartCache[t.sym]?.bars) return;  // 已經抓過，不重複打API
     setTradeChartCache(prev=>({...prev,[t.sym]:{loading:true}}));
     try{
-      const r=await fetch(`/api/sinopac?path=history/${encodeURIComponent(t.sym)}?bars=90`);
+      const r=await apiFetch(`/api/sinopac?path=history/${encodeURIComponent(t.sym)}?bars=90`);
       const d=await r.json();
       if(!r.ok||!d.bars?.length) throw new Error(d.note||"無歷史資料");
       setTradeChartCache(prev=>({...prev,[t.sym]:{bars:d.bars,loading:false}}));
@@ -933,7 +978,7 @@ export default function TradeAIPro() {
     if(broker.status!=="connected"){alert("請先連接永豐帳戶");return;}
     setBackendAuto(b=>({...b,loading:true}));
     try{
-      const r=await fetch("/api/sinopac?path=auto/start",{method:"POST",headers:{"Content-Type":"application/json"},
+      const r=await apiFetch("/api/sinopac?path=auto/start",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({risk,cap_pct:autoCapPct,watchlist:wl,paper_mode:backendPaperMode,force_real:forceReal})});
       const d=await r.json();
       if(r.ok){
@@ -957,7 +1002,7 @@ export default function TradeAIPro() {
 
   const stopBackendAuto = useCallback(async()=>{
     try{
-      await fetch("/api/sinopac?path=auto/stop",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});
+      await apiFetch("/api/sinopac?path=auto/stop",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});
       setBackendAuto(b=>({...b,enabled:false}));
       try{ localStorage.setItem("backend_auto_should_run","false"); }catch{}
     }catch{}
@@ -965,7 +1010,7 @@ export default function TradeAIPro() {
 
   const resetBackendDailyStats = useCallback(async()=>{
     try{
-      const r=await fetch("/api/sinopac?path=auto/reset-daily",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});
+      const r=await apiFetch("/api/sinopac?path=auto/reset-daily",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});
       const d=await r.json();
       if(r.ok) setBackendAuto(b=>({...b,status:d.state}));
       setModal(null);
@@ -1045,7 +1090,7 @@ export default function TradeAIPro() {
             <button onClick={async()=>{
               if(!confirm("確定要解除回撤保護、恢復開新倉嗎？建議先確認過原因再繼續。")) return;
               try{
-                const r=await fetch("/api/sinopac?path=auto/resume-after-drawdown",{method:"POST"});
+                const r=await apiFetch("/api/sinopac?path=auto/resume-after-drawdown",{method:"POST"});
                 if(r.ok) alert("已解除回撤保護");
                 else alert("解除失敗，請稍後再試");
               }catch{ alert("解除失敗，請檢查網路連線"); }
@@ -1607,7 +1652,7 @@ export default function TradeAIPro() {
             const v=Number(paperCapInput);
             if(!v||v<=0){alert("請輸入大於0的金額");return;}
             try{
-              const r=await fetch("/api/sinopac?path=auto/paper-capital",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount:v})});
+              const r=await apiFetch("/api/sinopac?path=auto/paper-capital",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount:v})});
               if(r.ok) alert(`模擬資金已設定為NT$${v.toLocaleString()}`);
               else { const d=await r.json(); alert(d.detail||"設定失敗"); }
             }catch{ alert("設定失敗，請檢查網路連線"); }
@@ -1639,7 +1684,7 @@ export default function TradeAIPro() {
             const v=Number(feeDiscountInput);
             if(!v||v<=0||v>10){alert("請輸入0~10之間的折數，例如6折就填6");return;}
             try{
-              const r=await fetch("/api/sinopac?path=auto/fee-discount",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({discount:v/10})});
+              const r=await apiFetch("/api/sinopac?path=auto/fee-discount",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({discount:v/10})});
               if(r.ok) alert(`手續費折扣已設定為${v}折`);
               else { const d=await r.json(); alert(d.detail||"設定失敗"); }
             }catch{ alert("設定失敗，請檢查網路連線"); }
@@ -1680,20 +1725,14 @@ export default function TradeAIPro() {
         </div>
         {broker.status!=="connected" ? (
           <div className="space-y-2.5">
-            <input type="password" placeholder="API Key" value={broker.apiKey}
-              onChange={e=>setBroker(b=>({...b,apiKey:e.target.value,error:null}))}
-              className="w-full bg-[#0a1622] border border-[#0d2137] rounded-lg px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/40"/>
-            <input type="password" placeholder="Secret Key" value={broker.secretKey}
-              onChange={e=>setBroker(b=>({...b,secretKey:e.target.value,error:null}))}
-              className="w-full bg-[#0a1622] border border-[#0d2137] rounded-lg px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/40"/>
             {broker.error && <div className="flex items-start gap-1.5 text-[10px] text-red-400"><AlertTriangle className="w-3 h-3 mt-0.5 shrink-0"/>{broker.error}</div>}
             <button onClick={connectBroker} disabled={broker.status==="connecting"}
               className="w-full py-2.5 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold disabled:opacity-50 flex items-center justify-center gap-1.5">
               {broker.status==="connecting" ? <><RefreshCw className="w-3 h-3 animate-spin"/>連接中...</> : "連接真實帳戶"}
             </button>
-            <div className="text-[9px] text-gray-600 leading-relaxed">連接後將自動讀取真實帳戶餘額與持倉。下單行為由「自動交易」分頁的「模擬/真實」切換決定——模擬僅試算，真實會送出真實委託。</div>
+            <div className="text-[9px] text-gray-600 leading-relaxed">API Key/Secret Key 已設定在後端環境變數，不會經過瀏覽器、也不會存在這台裝置上。連接後將自動讀取真實帳戶餘額與持倉。下單行為由「自動交易」分頁的「模擬/真實」切換決定——模擬僅試算，真實會送出真實委託。</div>
             <div className="text-[9px] text-amber-400/70 mt-1.5 leading-relaxed">當沖需符合法規資格（開戶滿3個月＋近1年成交達10筆＋已簽署當沖風險預告書），請先確認已在永豐開通，否則委託會被拒絕。零股不可當沖，僅整張可當沖（本系統已固定使用張為單位）。</div>
-            <div className="text-[9px] text-gray-700 mt-1.5 flex items-center gap-1"><Lightbulb className="w-3 h-3 flex-shrink-0"/>已記住的金鑰下次開啟網站會自動連接，不需要再手動按一次。</div>
+            <div className="text-[9px] text-gray-700 mt-1.5 flex items-center gap-1"><Lightbulb className="w-3 h-3 flex-shrink-0"/>開啟網站會自動連接，不需要手動按一次（除非剛斷線或連線失敗要重試）。</div>
           </div>
         ) : (
           <div className="space-y-1">
@@ -2330,4 +2369,9 @@ export default function TradeAIPro() {
       {MC()}
     </div>
   );
+}
+
+// 對外仍然叫做TradeAIPro（main.jsx不用改），但實際畫面外面包一層密碼門。
+export default function TradeAIPro() {
+  return <PasswordGate><TradeAIProApp/></PasswordGate>;
 }
