@@ -1989,28 +1989,25 @@ function TradeAIProApp() {
                   </div>
                 </div>
               ))}
-              <div className="pt-1 border-t border-[#0d2137] flex justify-between text-[10px]">
-                <span className="text-gray-600">持倉市值合計</span>
-                <span className="text-white font-mono">${realPos.reduce((s,p)=>s+Number(p.value||0),0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
-              </div>
               {(()=>{
                 // 對照永豐app「台股帳務」頁的庫存總市值/損益試算/報酬率/總付出成本——這四個數字
                 // 之前只顯示了市值合計，成本/損益/報酬率沒有加總顯示，但底層資料(avg_price/quantity/pnl)
                 // 本來就已經逐筆抓到了，這裡純粹是前端加總，不需要改後端。
+                // 修正(深層檢查找到)：/positions回傳的是整個永豐帳戶的持倉，不只是這個機器人開的單——
+                // 機器人本身只做多(dir_="L")，但如果使用者在永豐app上手動做過融券放空，這裡會混進
+                // direction==="Sell"的部位。市值(value=現價×股數)、損益(pnl，Shioaji已經依方向算對)
+                // 這兩個數字不分多空都有意義，照樣全部加總；但「總付出成本」用avg_price×quantity算，
+                // 這個算法假設的是「你付錢買進」這個多單邏輯——放空收到的是錢，不是付出成本，算法
+                // 意義完全相反，混在一起加總會讓這兩個欄位(總付出成本/報酬率)失真，所以只有這兩個
+                // 欄位排除放空部位，並在有放空部位時額外顯示提示，不要默默算錯也不講。
                 const totalValue=realPos.reduce((s,p)=>s+Number(p.value||0),0);
-                const totalCost=realPos.reduce((s,p)=>s+Number(p.avg_price||0)*Number(p.quantity||0),0);
                 const totalPnl=realPos.reduce((s,p)=>s+Number(p.pnl||0),0);
-                const totalReturnPct=totalCost?(totalPnl/totalCost*100):0;
-                return(
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div>
-                      <div className="text-[8px] text-gray-700">總付出成本</div>
-                      <div className="text-[10px] text-gray-300 font-mono">${totalCost.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-                    </div>
-                    <div>
-                      <div className="text-[8px] text-gray-700">報酬率</div>
-                      <div className={`text-[10px] font-mono font-bold ${totalReturnPct>=0?"text-emerald-400":"text-red-400"}`}>{totalReturnPct>=0?"+":""}{totalReturnPct.toFixed(2)}%</div>
-                    </div>
+                const longPos=realPos.filter(p=>p.direction!=="Sell");
+                const shortCount=realPos.length-longPos.length;
+                const totalCost=longPos.reduce((s,p)=>s+Number(p.avg_price||0)*Number(p.quantity||0),0);
+                const totalReturnPct=totalCost?(longPos.reduce((s,p)=>s+Number(p.pnl||0),0)/totalCost*100):0;
+                return(<>
+                  <div className="grid grid-cols-2 gap-2 pt-2 mt-1 border-t border-[#0d2137]">
                     <div>
                       <div className="text-[8px] text-gray-700">庫存總市值</div>
                       <div className="text-[10px] text-white font-mono">${totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
@@ -2019,8 +2016,19 @@ function TradeAIProApp() {
                       <div className="text-[8px] text-gray-700">損益試算</div>
                       <div className={`text-[10px] font-mono font-bold ${totalPnl>=0?"text-emerald-400":"text-red-400"}`}>{totalPnl>=0?"+":""}{totalPnl.toFixed(0)}</div>
                     </div>
+                    <div>
+                      <div className="text-[8px] text-gray-700">總付出成本{shortCount>0?"(僅做多)":""}</div>
+                      <div className="text-[10px] text-gray-300 font-mono">${totalCost.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                    </div>
+                    <div>
+                      <div className="text-[8px] text-gray-700">報酬率{shortCount>0?"(僅做多)":""}</div>
+                      <div className={`text-[10px] font-mono font-bold ${totalReturnPct>=0?"text-emerald-400":"text-red-400"}`}>{totalReturnPct>=0?"+":""}{totalReturnPct.toFixed(2)}%</div>
+                    </div>
                   </div>
-                );
+                  {shortCount>0&&(
+                    <div className="text-[8px] text-amber-400/70 mt-1.5">偵測到{shortCount}筆融券放空部位：庫存總市值/損益試算已包含這些部位，但總付出成本/報酬率只計入做多部位(放空收到的是錢、不是付出成本，算法相反，混算會失真)</div>
+                  )}
+                </>);
               })()}
             </div>
           )}
