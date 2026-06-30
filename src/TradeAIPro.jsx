@@ -51,6 +51,7 @@ const PAPER_VALIDATION_MIN_TRADES=20, PAPER_VALIDATION_MIN_DAYS=5;
 // 對應後端 advanced_score 的 Market Regime 分類，純顯示用的中文標籤
 const REGIME_LABEL={trending_bull:"多頭趨勢",trending_bear:"空頭趨勢",range:"區間盤整",volatile:"高波動",panic:"恐慌",unknown:"資料不足"};
 const FUNNEL_LABELS={
+  cache_warming:"後端剛重啟，價格資料還在暖機中(最長需等15分鐘，不是規則擋下)",
   bad_time:"不在交易時段(09:30前/13:00後)",
   no_trade_zone:"禁止交易區(假日/量過低/波動過低)",
   not_eligible:"當沖資格不符(處置股/不符資格)",
@@ -65,6 +66,13 @@ const FUNNEL_LABELS={
   daily_cap_reached:"已達當日3筆交易上限",
   per_tick_cap_reached:"已達單次週期2檔新倉上限",
   order_failed:"委託被永豐拒絕或送出失敗(資金不足/股票被暫停交易等)",
+};
+// last_eval(單一symbol「目前」卡在哪一關)專用的額外標籤——刻意不混進FUNNEL_LABELS，
+// 避免「已成功進場」「正在排名競爭」這種狀態被誤算進「今日交易漏斗」的歷史累計清單裡
+// (那邊的opened已經用header的「成功進場X筆」單獨呈現，不該又在rows清單裡多一行)。
+const LAST_EVAL_LABELS={...FUNNEL_LABELS,
+  pending_rank:"已通過所有篩選，正在跟其他候選排名競爭名額",
+  opened:"已成功進場",
 };
 const GRADE_STYLE={
   S:"bg-amber-500/15 text-amber-400 border-amber-500/25",
@@ -366,7 +374,7 @@ function Chip({children,c="border-cyan-500/30 text-cyan-400 bg-cyan-500/10"}) {
 }
 
 // ── ◎ 市場頁（含搜尋輸入框）— 提升至頂層保持元件身分穩定 ──────
-function MarketTab({live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,onRealPrice,realBases,wlSyncError,realSyms,realChartSyms}) {
+function MarketTab({live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,onRealPrice,realBases,wlSyncError,realSyms,realChartSyms,lastEval}) {
   const [realQuote,setRealQuote]=useState(null); // {sym, price, loading, error}
   // ── 手機向左滑刪除自選股 ──────────────────────────────────────
   const [swipeX,setSwipeX]=useState({});      // {sym: 目前位移px}
@@ -485,6 +493,21 @@ function MarketTab({live,sigs,sparks,search,setSearch,wl,setWl,setModal,broker,o
                     {broker?.status==="connected"&&!realSyms?.has(sym)&&<span className="text-[7px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/25">模擬</span>}
                   </div>
                   <div className="text-[9px] text-gray-600">{info.name}{info.sector?` · ${info.sector}`:""}</div>
+                  {lastEval?.[sym]&&(()=>{
+                    // 修正：原本只有「今日交易漏斗」這種混合48檔股票、整天累積次數的聚合畫面，
+                    // 使用者沒辦法直接回答「我自選股的這一檔，現在到底卡在哪一關」這個最直覺的問題，
+                    // 要自己去解讀一堆數字才能猜。這裡直接顯示這檔股票「最新一次」AI評估結果，
+                    // 跟自己的股票直接對應，不用再去猜。
+                    const le=lastEval[sym];
+                    const label=LAST_EVAL_LABELS[le.reason]||le.reason;
+                    const isGood=le.reason==="opened"||le.reason==="pending_rank";
+                    const t=new Date(le.ts*1000).toLocaleTimeString("zh-TW",{hour12:false});
+                    return(
+                      <div className={`text-[8px] mt-0.5 truncate ${isGood?"text-emerald-400/80":"text-amber-400/70"}`} title={`${t} · ${label}`}>
+                        AI({t})：{label}{le.conf!=null?` ${le.conf.toFixed(0)}%`:""}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="w-12 h-6 mx-2 flex-shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
@@ -1016,12 +1039,20 @@ function TradeAIProApp() {
     }
   },[tradeChartCache]);
 
-  const startBackendAuto = useCallback(async(forceReal=false)=>{
+  const startBackendAuto = useCallback(async(forceReal=false, riskOverride=null)=>{
+    // 修正：原本一律用本地risk這個useState的值——但risk預設值是"low"，重新整理頁面後
+    // 一定會重置回"low"，從來不會跟後端status輪詢回來的真實risk同步。如果之後這支函式
+    // 被backendAutoResumedR那個自動恢復機制呼叫(後端被偵測到enabled=false時自動重新啟動)，
+    // 會用這個沒同步到的本地"low"重新啟動，等於使用者原本設定的風險等級被悄悄蓋掉，
+    // 使用者完全不知情——這正是「調到高風險、重開網頁又跳回低風險」的根因之一。
+    // 加這個riskOverride參數，呼叫端(自動恢復機制)可以明確帶後端剛輪詢到的真實risk進來，
+    // 不用依賴本地state的時間點是否已經同步好。
+    const effectiveRisk = riskOverride || risk;
     if(broker.status!=="connected"){alert("請先連接永豐帳戶");return;}
     setBackendAuto(b=>({...b,loading:true}));
     try{
       const r=await apiFetch("/api/sinopac?path=auto/start",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({risk,cap_pct:autoCapPct,watchlist:wl,paper_mode:backendPaperMode,force_real:forceReal})});
+        body:JSON.stringify({risk:effectiveRisk,cap_pct:autoCapPct,watchlist:wl,paper_mode:backendPaperMode,force_real:forceReal})});
       const d=await r.json();
       if(r.ok){
         setBackendAuto(b=>({...b,enabled:true,loading:false,status:d.state}));
@@ -1059,6 +1090,15 @@ function TradeAIProApp() {
     }catch{ setModal(null); }
   },[]);
 
+  // 修正：本地risk這個useState從來不會跟後端同步——重新整理頁面後永遠重置回預設值"low"，
+  // 即使後端實際上正在用使用者先前設定的高風險運行也一樣，導致畫面上所有風險徽章
+  // (頂部「高風險運行」字樣、自動交易卡片裡的風險標籤等)重新整理後全部顯示錯誤的"低風險"，
+  // 這正是使用者回報的「調到高風險，重開網頁又跳回低風險」。只要後端有回報風險等級，
+  // 就讓本地risk跟著對齊，後端autoState才是risk設定真正的唯一事實來源(source of truth)。
+  useEffect(()=>{
+    if(backendAuto.status?.risk) setRisk(backendAuto.status.risk);
+  },[backendAuto.status?.risk]);
+
   // 自動恢復後端自動交易：若使用者之前啟動過、但輪詢發現後端目前是停止狀態（可能因Railway重啟/重新部署而遺失記憶體狀態），
   // 自動重新呼叫一次啟動，避免每次都要手動重新按
   const backendAutoResumedR = useRef(false);
@@ -1069,7 +1109,10 @@ function TradeAIProApp() {
     try{ shouldRun=localStorage.getItem("backend_auto_should_run")==="true"; }catch{}
     if(shouldRun&&!backendAuto.enabled&&!backendAuto.loading&&backendAuto.status!==null){
       backendAutoResumedR.current=true;
-      startBackendAuto();
+      // 修正：明確帶後端輪詢回來的risk(backendAuto.status.risk)，不要依賴本地risk state——
+      // 即使上面那個同步effect理論上已經處理了，這裡再保險一層明確帶值，不依賴兩個effect
+      // 之間微妙的執行順序/render時機，確保自動恢復一定是用「後端記得的設定」，不是本地預設值。
+      startBackendAuto(false, backendAuto.status?.risk);
     }
   },[broker.status,backendAuto.enabled,backendAuto.loading,backendAuto.status,startBackendAuto]);
 
@@ -2347,25 +2390,51 @@ function TradeAIProApp() {
       }
       case "funnelDetail": {
         const fn=backendAuto.status?.funnel||{};
+        const lastEval=backendAuto.status?.last_eval||{};
         const rows=Object.entries(FUNNEL_LABELS).map(([k,label])=>({k,label,n:fn[k]||0})).sort((a,b)=>b.n-a.n);
-        const total=fn.scanned||0;
+        const scannedCount=fn.scanned||0;  // 標題用：「今天共掃描X次」是真正進入技術指標評估的次數，跟下面長條圖的分母刻意分開
+        const barTotal=rows.reduce((s,r)=>s+r.n,0)||1;  // 長條圖分母：所有桶子的總和，避免cache_warming佔滿、但scanned=0時全部長條圖都變成0%寬度
         return(
           <MW title="今日交易漏斗">
             <div className="text-center py-2 mb-3">
-              <div className="text-[10px] text-gray-500">今天共掃描 <span className="text-white font-mono font-bold">{total}</span> 次候選，成功進場 <span className="text-emerald-400 font-mono font-bold">{fn.opened||0}</span> 筆</div>
+              <div className="text-[10px] text-gray-500">今天共掃描 <span className="text-white font-mono font-bold">{scannedCount}</span> 次候選，成功進場 <span className="text-emerald-400 font-mono font-bold">{fn.opened||0}</span> 筆</div>
             </div>
             <div className="space-y-2">
-              {rows.map(r=>(
-                <div key={r.k} className="flex items-center gap-2">
-                  <div className="flex-1 text-[10px] text-gray-400">{r.label}</div>
-                  <div className="text-xs font-mono font-bold text-amber-400 w-10 text-right">{r.n}</div>
-                  <div className="w-16 h-1.5 bg-[#0d2137] rounded-full overflow-hidden flex-shrink-0">
-                    <div className="h-full bg-amber-500 rounded-full" style={{width:total>0?`${Math.min(100,r.n/total*100)}%`:"0%"}}/>
+              {rows.map(r=>{
+                // 修正：原本這裡只有一個聚合數字(例如「資金不足，買不起1張：8」)，看不出是哪8檔、
+                // 各自卡在什麼價位/預算——但後端其實每30秒評估每檔候選時，都已經把「這檔股票最新一次
+                // 卡在哪一關、詳細原因(例如預算多少/1張要多少錢)」記在auto_state["last_eval"]裡
+                // (_mark_eval()寫入的)，且早就跟著/auto/status傳到前端了，只是「市場」分頁原本只對
+                // 自選股顯示這個資訊，候選股票池(SCAN_UNIVERSE，通常不在自選股清單裡)的原因完全沒地方看。
+                // 這裡直接撈出「目前最新狀態正好卡在這一關」的symbol清單顯示出來——數字看起來很大
+                // (例如2029)是「整天累積次數」，但同一檔股票一直被重複評估、只會留下最新一筆，
+                // 所以這裡列出來的symbol數通常遠比那個數字小，是「現在這一刻」的快照，不是歷史總和。
+                const matches=Object.entries(lastEval).filter(([,le])=>le.reason===r.k);
+                return(
+                  <div key={r.k}>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 text-[10px] text-gray-400">{r.label}</div>
+                      <div className="text-xs font-mono font-bold text-amber-400 w-10 text-right">{r.n}</div>
+                      <div className="w-16 h-1.5 bg-[#0d2137] rounded-full overflow-hidden flex-shrink-0">
+                        <div className="h-full bg-amber-500 rounded-full" style={{width:`${Math.min(100,r.n/barTotal*100)}%`}}/>
+                      </div>
+                    </div>
+                    {matches.length>0&&(
+                      <div className="mt-1 ml-1 pl-2 border-l border-[#1a3050] space-y-0.5">
+                        {matches.map(([sym,le])=>(
+                          <div key={sym} className="text-[9px] text-gray-600 flex items-center gap-1.5">
+                            <span className="text-gray-400 font-mono">{sym}</span>
+                            {le.detail&&<span>{le.detail}</span>}
+                            {le.conf!=null&&<span className="text-violet-400/70">{le.conf.toFixed(0)}%</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-            <div className="text-[9px] text-gray-700 mt-4 leading-relaxed">每一關都是獨立檢查，一個候選只會被算進「第一個擋下它的關卡」，不會重複計算。每天凌晨(交易日切換時)自動歸零重新計算。</div>
+            <div className="text-[9px] text-gray-700 mt-4 leading-relaxed">每一關都是獨立檢查，一個候選只會被算進「第一個擋下它的關卡」，不會重複計算。每天凌晨(交易日切換時)自動歸零重新計算。上面縮排列出的是目前最新一次評估「正好卡在這一關」的股票，數字(如2029)是整天累積觸發次數，跟下面列出的股票數量通常不會相等——同一檔股票整天被重複評估很多次，這裡只顯示「最新一次」結果。</div>
           </MW>
         );
       }
@@ -2433,7 +2502,7 @@ function TradeAIProApp() {
       {/* ── Content ── */}
       <div className="px-4 py-4 pb-28">
         {tab==="overview" && OverviewTab()}
-        {tab==="market"   && <MarketTab live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} broker={broker} realBases={realBases} onRealPrice={(sym,price)=>setRealBases(b=>({...b,[sym]:price}))} wlSyncError={wlSyncError} realSyms={realSyms} realChartSyms={realChartSyms}/>}
+        {tab==="market"   && <MarketTab live={live} sigs={sigs} sparks={sparks} search={search} setSearch={setSearch} wl={wl} setWl={setWl} setModal={setModal} broker={broker} realBases={realBases} onRealPrice={(sym,price)=>setRealBases(b=>({...b,[sym]:price}))} wlSyncError={wlSyncError} realSyms={realSyms} realChartSyms={realChartSyms} lastEval={backendAuto.status?.last_eval}/>}
         {tab==="auto"     && AutoTab()}
         {tab==="records"  && RecordsTab()}
         {tab==="strategy" && StrategyTab()}
