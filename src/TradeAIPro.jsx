@@ -847,35 +847,41 @@ function TradeAIProApp() {
   },[broker.status,wl,markRealChart]);
 
   // ── 真實報價輪詢（broker 連線後持續向後端抓真實即時股價，取代模擬數據）──
+  // 優化：原本對wl裡每一檔個別打一次/price/{symbol}(15秒一輪詢，N檔watchlist就是N個並行請求)，
+  // 改成打後端新增的/prices批次端點，一次查完整份watchlist，15秒的輪詢從N個請求變成1個。
   useEffect(()=>{
-    if(broker.status!=="connected") return;
+    if(broker.status!=="connected"||wl.length===0) return;
     let cancelled=false;
     const fetchAll=async()=>{
-      const results=await Promise.allSettled(
-        wl.map(async sym=>{
-          const r=await apiFetch(`/api/sinopac?path=price/${encodeURIComponent(sym)}`);
-          const d=await r.json();
-          if(!r.ok) throw new Error(d.detail||`查詢失敗(HTTP ${r.status})`);
-          return{sym,...d};
-        })
-      );
+      const symbolsCsv=wl.map(s=>encodeURIComponent(s)).join(",");
+      let data=null, fetchError=null;
+      try{
+        const r=await apiFetch(`/api/sinopac?path=prices?symbols=${symbolsCsv}`);
+        data=await r.json();
+        if(!r.ok) fetchError=data?.detail||`查詢失敗(HTTP ${r.status})`;
+      }catch(e){
+        fetchError=e.message||"查詢失敗";
+      }
       if(cancelled) return;
+      if(fetchError){
+        // 修正：原本N個獨立請求各自失敗時各自印log，現在是1個請求，整批失敗時統一印一次，
+        // 仍然要清楚標示是「整批查詢失敗」(例如後端斷線)，不要讓人誤以為是某一檔股票的問題。
+        console.warn(`[批次報價查詢失敗] watchlist整批:`, fetchError);
+        return;
+      }
       const updates={};
       const nameUpdates={};
-      results.forEach((r,i)=>{
-        const sym=wl[i];
-        if(r.status==="fulfilled"&&r.value.price){
-          const{price,change=0,change_percent=0,name}=r.value;
+      wl.forEach(sym=>{
+        const v=data?.[sym];
+        if(v&&v.price){
+          const{price,change=0,change_percent=0,name}=v;
           updates[sym]={price:Number(price),chg:Number(change),pct:Number(change_percent)};
           if(name) nameUpdates[sym]=name; // 永豐回傳的真實中文名稱
           markReal(sym); // 標記為真實報價來源，停用該股的亂數模擬跳動
-        }else if(r.status==="rejected"){
-          // 修正：原本這裡完全不記錄失敗原因，使用者只會看到畫面上顯示「模擬」標籤，
-          // 完全不知道是代號打錯(例如00631L少打一個0變成0631L)、現在不是交易時段、
-          // 還是後端/永豐連線真的有問題——印到console讓人可以按F12查看到底卡在哪一種。
-          console.warn(`[價格查詢失敗] ${sym}:`, r.reason?.message||r.reason);
-        }else if(r.status==="fulfilled"&&!r.value.price){
-          console.warn(`[價格查詢] ${sym}: 後端回應成功但沒有price欄位`, r.value);
+        }else{
+          // 個別股票在批次回應裡缺漏(代號打錯/合約查不到/該股票解析失敗)，逐一標示出來，
+          // 跟原本N個獨立請求時代號打錯能被指認出來的效果一致，不會因為改批次就失去這個診斷能力。
+          console.warn(`[價格查詢] ${sym}: 批次回應中缺少這檔資料(可能代號錯誤或永豐查無此合約)`);
         }
       });
       if(Object.keys(nameUpdates).length>0){
