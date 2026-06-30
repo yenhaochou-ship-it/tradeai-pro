@@ -65,7 +65,7 @@ const FUNNEL_LABELS={
   unaffordable:"資金不足，買不起1張",
   daily_cap_reached:"已達當日3筆交易上限",
   per_tick_cap_reached:"已達單次週期2檔新倉上限",
-  order_failed:"委託被永豐拒絕或送出失敗(資金不足/股票被暫停交易等)",
+  order_failed:"委託被永豐拒絕或送出失敗(資金不足/股票被暫停交易等)——只有真實模式才會出現，模擬模式完全不會送出真實委託，這條永遠是0",
 };
 // last_eval(單一symbol「目前」卡在哪一關)專用的額外標籤——刻意不混進FUNNEL_LABELS，
 // 避免「已成功進場」「正在排名競爭」這種狀態被誤算進「今日交易漏斗」的歷史累計清單裡
