@@ -1989,6 +1989,35 @@ function TradeAIProApp() {
                 <span className="text-gray-600">持倉市值合計</span>
                 <span className="text-white font-mono">${realPos.reduce((s,p)=>s+Number(p.value||0),0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
               </div>
+              {(()=>{
+                // 對照永豐app「台股帳務」頁的庫存總市值/損益試算/報酬率/總付出成本——這四個數字
+                // 之前只顯示了市值合計，成本/損益/報酬率沒有加總顯示，但底層資料(avg_price/quantity/pnl)
+                // 本來就已經逐筆抓到了，這裡純粹是前端加總，不需要改後端。
+                const totalValue=realPos.reduce((s,p)=>s+Number(p.value||0),0);
+                const totalCost=realPos.reduce((s,p)=>s+Number(p.avg_price||0)*Number(p.quantity||0),0);
+                const totalPnl=realPos.reduce((s,p)=>s+Number(p.pnl||0),0);
+                const totalReturnPct=totalCost?(totalPnl/totalCost*100):0;
+                return(
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <div className="text-[8px] text-gray-700">總付出成本</div>
+                      <div className="text-[10px] text-gray-300 font-mono">${totalCost.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                    </div>
+                    <div>
+                      <div className="text-[8px] text-gray-700">報酬率</div>
+                      <div className={`text-[10px] font-mono font-bold ${totalReturnPct>=0?"text-emerald-400":"text-red-400"}`}>{totalReturnPct>=0?"+":""}{totalReturnPct.toFixed(2)}%</div>
+                    </div>
+                    <div>
+                      <div className="text-[8px] text-gray-700">庫存總市值</div>
+                      <div className="text-[10px] text-white font-mono">${totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                    </div>
+                    <div>
+                      <div className="text-[8px] text-gray-700">損益試算</div>
+                      <div className={`text-[10px] font-mono font-bold ${totalPnl>=0?"text-emerald-400":"text-red-400"}`}>{totalPnl>=0?"+":""}{totalPnl.toFixed(0)}</div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </Card>
